@@ -717,6 +717,7 @@ class UPT(nn.Module):
                     sample_obj_embeddings =  torch.as_tensor(np.array(obj_emb)[sample_index])
                     sample_hum_embeddings =  torch.as_tensor(np.array(hum_emb)[sample_index])
                     
+                    
                     if self.use_kmeans:
                         sample_obj_embeddings = torch.from_numpy(self.naive_kmeans(np.array(obj_emb), K=K_shot))
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(np.array(hum_emb), K=K_shot))

@@ -91,6 +91,7 @@ class UPT(nn.Module):
         Maximum number of instances (human or object) to sample
     """
     def __init__(self,
+    args,
         detector: nn.Module,
         postprocessor: nn.Module,
         clip_head: nn.Module,
@@ -252,7 +253,8 @@ class UPT(nn.Module):
         self._global_norm = False
 
         self.use_swap = False
-        self.unseen_setting = False
+        self.unseen_setting = args.is_unseen
+    
         self.unseen_rare_first = hico_list.hico_unseen_index['rare_first']
         self.unseen_nonrare_first = hico_list.hico_unseen_index['non_rare_first']
         self.count = 0
@@ -540,6 +542,23 @@ class UPT(nn.Module):
         topk_idx = torch.argsort(dis_vector, descending=less_confident)[:K]
         return topk_idx
         
+    def select_human_pool(self, feat_ref, all_feat, hoi_index, sample_N=100):
+        
+        hoi_to_verb = self.HOI_IDX_TO_ACT_IDX[hoi_index]
+        
+        feat_other = []
+        for i, v in enumerate(self.HOI_IDX_TO_ACT_IDX):
+            if  v==hoi_to_verb and i != hoi_index:
+                feat_other.append(torch.as_tensor(all_feat[v]))
+        feat_other = torch.cat(feat_other)
+        pdb.set_trace()
+        
+
+        dis_matrix = feat_other @ feat_ref.t()
+        distances = dis_matrix.mean(-1)
+        pdb.set_trace()
+        dis_matrix = torch.sort(dis_matrix, dim=1)[0]
+        pass
 
     def load_cache_model_lt(self, file1, K_shot=32):
         annotation = pickle.load(open(file1,'rb'))
@@ -645,14 +664,14 @@ class UPT(nn.Module):
                 hum_embeddings[v].append(huamn_features[i] / np.linalg.norm(huamn_features[i]))
                 each_filenames[v].append(file_n)
                 sample_indexes[v].append(i)
-                
-                if v in self.unseen_rare_first:
+                verbs_iou[v].append(ious[i])
+                if v in self.unseen_nonrare_first and self.unseen_setting:
                     # pdb.set_trace()
                     continue
                 verbs_human_feat[orig_verbs[i]].append(huamn_features[i] / np.linalg.norm(huamn_features[i]))
                 object_feat[objects_label[i]].append(object_features[i] / np.linalg.norm(object_features[i]))
                 # add iou
-                verbs_iou[v].append(ious[i])
+                
                 
         all_lens = torch.as_tensor([len(u) for u in union_embeddings])
         K_shot = num_shot
@@ -756,9 +775,9 @@ class UPT(nn.Module):
                     #     sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(np.array(hum_emb), K=K_shot))
                     # pdb.set_trace()
                     if self.use_outliers:
-                        
-                        if i in self.unseen_rare_first and self.unseen_setting:
-                            pdb.set_trace()
+                        self.select_human_pool(hum_emb, hum_embeddings, i)
+                        if i in self.unseen_nonrare_first and self.unseen_setting:
+                            # pdb.set_trace()
                             self.count+=1
                             hum_emb = verbs_human_feat[self.HOI_IDX_TO_ACT_IDX[i]]
                             obj_emb = object_feat[self.HOI_IDX_TO_OBJ_IDX[i]]
@@ -821,9 +840,9 @@ class UPT(nn.Module):
                 else:
                     lens = len(embeddings)
                     sample_index = np.arange(lens)
-                    sample_embeddings = torch.as_tensor(np.array(embeddings))
-                    sample_obj_embeddings = torch.as_tensor(np.array(obj_emb))
-                    sample_hum_embeddings = torch.as_tensor(np.array(hum_emb))
+                    sample_embeddings = torch.as_tensor(np.array(embeddings)).cuda()
+                    sample_obj_embeddings = torch.as_tensor(np.array(obj_emb)).cuda()
+                    sample_hum_embeddings = torch.as_tensor(np.array(hum_emb)).cuda()
 
                 lens = len(sample_obj_embeddings)
 
@@ -1647,6 +1666,7 @@ def build_detector(args, class_corr):
                                 transformer_heads=args.clip_text_transformer_heads_vit,
                                 transformer_layers=args.clip_text_transformer_layers_vit)
     detector = UPT(
+        args,
         detr, postprocessors['bbox'], clip_head, args.clip_dir_vit,
         human_idx=args.human_idx, num_classes=args.num_classes,
         alpha=args.alpha, gamma=args.gamma,
