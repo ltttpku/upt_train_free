@@ -431,13 +431,11 @@ class UPT(nn.Module):
 
         feats = feats.cuda().float()
         num_of_neighbours = feats.shape[0] // divisor
-        ## calculate the distance between each pair of features
         dis_matrix = feats @ feats.t()
         
         if num_of_neighbours > 0:
-            ## select the k smallest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1)[0]
-            ## sum the k smallest nums for every row
+            ## select the k largest num for every row of the distance matrix
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
@@ -445,11 +443,8 @@ class UPT(nn.Module):
         # pdb.set_trace()
         if origin_idx != None:
             dis_vector[origin_idx] += 0.1
-        ## select topk largest and topk smallest distance
-        # pdb.set_trace()
-        # idx = torch.cat((torch.argsort(dis_vector, descending=outlier)[:K - K //10], torch.argsort(dis_vector, descending=outlier)[-(K//10):]), dim=0)
-        # return feats[idx]
-        topk_idx = torch.argsort(dis_vector, descending=outlier)[:K]
+
+        topk_idx = torch.argsort(dis_vector, descending=False)[:K]
         return topk_idx
         # topk_feats = feats[topk_idx]
         # return topk_feats.cpu()
@@ -695,6 +690,7 @@ class UPT(nn.Module):
                     one_hots[all_lens_sample[i-1]:all_lens_sample[i],:] = one_hot
 
                 each_lens.append(lens)
+
         elif feature == 'hum_obj':
             cache_models = torch.zeros((all_lens_sample[-1], 512*2),dtype=torch.float16)
             one_hots = torch.zeros((all_lens_sample[-1], categories),dtype=torch.float16)
@@ -717,7 +713,7 @@ class UPT(nn.Module):
                     sample_obj_embeddings =  torch.as_tensor(np.array(obj_emb)[sample_index])
                     sample_hum_embeddings =  torch.as_tensor(np.array(hum_emb)[sample_index])
                     
-                    
+
                     if self.use_kmeans:
                         sample_obj_embeddings = torch.from_numpy(self.naive_kmeans(np.array(obj_emb), K=K_shot))
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(np.array(hum_emb), K=K_shot))
@@ -736,9 +732,9 @@ class UPT(nn.Module):
                                 new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
                                 origin_idx = torch.arange(0, new_embeddings.shape[0], obj_emb.shape[0]).cuda()
                                 # pdb.set_trace()
-                                dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
-                                topk_indices = torch.argsort(dis_vector, descending=True)[:new_embeddings.shape[0]//2]
-                                new_embeddings = new_embeddings[topk_indices]
+                                # dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
+                                # topk_indices = torch.argsort(dis_vector, descending=True)[:new_embeddings.shape[0]//2]
+                                # new_embeddings = new_embeddings[topk_indices]
 
                                 # if self.alpha > 0.5: ## tend to select 'real'
                                 #     topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], origin_idx=origin_idx)

@@ -452,7 +452,8 @@ class UPT(nn.Module):
         
         if num_of_neighbours > 0:
             ## select the k smallest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1)[0]
+            # pdb.set_trace()
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
             ## sum the k smallest nums for every row
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
@@ -465,7 +466,7 @@ class UPT(nn.Module):
         # pdb.set_trace()
         # idx = torch.cat((torch.argsort(dis_vector, descending=outlier)[:K - K //10], torch.argsort(dis_vector, descending=outlier)[-(K//10):]), dim=0)
         # return feats[idx]
-        topk_idx = torch.argsort(dis_vector, descending=outlier)[:K]
+        topk_idx = torch.argsort(dis_vector, descending=False)[:K]
         return topk_idx
         # topk_feats = feats[topk_idx]
         # return topk_feats.cpu()
@@ -551,14 +552,20 @@ class UPT(nn.Module):
             if  v==hoi_to_verb and i != hoi_index:
                 feat_other.append(torch.as_tensor(all_feat[v]))
         feat_other = torch.cat(feat_other)
-        pdb.set_trace()
-        
+        # pdb.set_trace()
+        feat_ref = torch.as_tensor(feat_ref)
 
         dis_matrix = feat_other @ feat_ref.t()
         distances = dis_matrix.mean(-1)
-        pdb.set_trace()
-        dis_matrix = torch.sort(dis_matrix, dim=1)[0]
-        pass
+        # pdb.set_trace()
+
+        dis_index = torch.sort(distances, descending=True)[1][:sample_N]  # max similar
+
+        hum_feat_pool = feat_other[dis_matrix]
+        return hum_feat_pool
+
+    def synthesize_pairs(self, feat_ref_hum, feat_ref_obj, hum_pool, all_objects):
+        feat_ref_hum
 
     def load_cache_model_lt(self, file1, K_shot=32):
         annotation = pickle.load(open(file1,'rb'))
@@ -775,7 +782,8 @@ class UPT(nn.Module):
                     #     sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(np.array(hum_emb), K=K_shot))
                     # pdb.set_trace()
                     if self.use_outliers:
-                        self.select_human_pool(hum_emb, hum_embeddings, i)
+                        hum_feat_pool = self.select_human_pool(hum_emb, hum_embeddings, i)
+
                         if i in self.unseen_nonrare_first and self.unseen_setting:
                             # pdb.set_trace()
                             self.count+=1
