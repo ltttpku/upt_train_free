@@ -649,6 +649,7 @@ class UPT(nn.Module):
         verbs_human_feat = [[] for i in range(117)]
         object_feat = [[] for i in range(80)]
 
+        others_hum = [[] for i in range(categories)]
         for file_n in filenames:
             anno = annotation[file_n]
             if categories == 117: verbs = anno['verbs']
@@ -659,18 +660,31 @@ class UPT(nn.Module):
             # pdb.set_trace()
             huamn_features = anno['huamn_features']
             ious = torch.diag(box_iou(torch.as_tensor(anno['boxes_h']), torch.as_tensor(anno['boxes_o'])))
+            # pdb.set_trace()
+            x, y = torch.nonzero(torch.min(
+                box_iou(torch.as_tensor(anno['boxes_h']), torch.as_tensor(anno['boxes_h'])),
+                box_iou(torch.as_tensor(anno['boxes_o']), torch.as_tensor(anno['boxes_o']))
+                ) >= self.fg_iou_thresh).unbind(1)
+            # 
             
+
             orig_verbs = anno['verbs']
-            objects_label = anno['objects']
+            objects_label = torch.as_tensor(anno['objects'])
             if len(verbs) == 0:
                 print(file_n)
             for i, v in enumerate(verbs):
-                # pdb.set_trace()
+                pdb.set_trace()
                 union_embeddings[v].append(union_features[i] / np.linalg.norm(union_features[i]))
                 obj_embeddings[v].append(object_features[i] / np.linalg.norm(object_features[i]))
                 hum_embeddings[v].append(huamn_features[i] / np.linalg.norm(huamn_features[i]))
                 each_filenames[v].append(file_n)
                 sample_indexes[v].append(i)
+
+
+                ind_x = torch.where(x==i)[0]
+                ind_y = torch.where(y[ind_x]!=i)[0]
+                object_pair = torch.where(objects_label[i]==objects_label[ind_y])[0]
+                ind_y_new = ind_y[object_pair]
                 verbs_iou[v].append(ious[i])
                 if v in self.unseen_nonrare_first and self.unseen_setting:
                     # pdb.set_trace()
