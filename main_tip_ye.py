@@ -127,6 +127,7 @@ def main(rank, args):
             f.write('\n')
             json.dump(args.__dict__, f)
             f.write('\n')
+            f.write(f'alpha: {self.alpha}, neighbours_descending: {self.neighbours_descending} , topk_descending:{self.topk_descending}')
             f.write(f'{100 * ap.mean():.2f} ')
             f.write(f'{100 * ap[rare].mean():.2f} ')
             f.write(f'{100 * ap[non_rare].mean():.2f}\n')
