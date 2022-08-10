@@ -415,7 +415,7 @@ class UPT(nn.Module):
         else:
             raise NotImplementedError
 
-    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, divisor=2):
+    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighours_descenting=False, topk_descending=True):
         '''
         feats: num x 512 (num >= K), tensor, dtype=float32
         return: K x 512
@@ -429,12 +429,12 @@ class UPT(nn.Module):
         # feats = feats[indices]
 
         feats = feats.cuda().float()
-        num_of_neighbours = feats.shape[0] // divisor
+        num_of_neighbours = int(feats.shape[0] * ratio)
         dis_matrix = feats @ feats.t()
         
         if num_of_neighbours > 0:
             ## select the k largest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=neighours_descenting)[0]
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
@@ -443,7 +443,7 @@ class UPT(nn.Module):
         if origin_idx != None:
             dis_vector[origin_idx] += 0.1
 
-        topk_idx = torch.argsort(dis_vector, descending=True)[:K]
+        topk_idx = torch.argsort(dis_vector, descending=topk_descending)[:K]
         return topk_idx
         # topk_feats = feats[topk_idx]
         # return topk_feats.cpu()
@@ -729,20 +729,25 @@ class UPT(nn.Module):
                     if self.use_kmeans:
                         sample_obj_embeddings = torch.from_numpy(self.naive_kmeans(obj_embeddings, K=K_shot))
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(hum_embeddings, K=K_shot))
+                    
                     if self.preconcat:
-                        # pdb.set_trace()
-                        topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                        pdb.set_trace()
+                        if self.use_outliers:
+                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i],
+                                                    neighours_descenting=self.neighours_descenting, topk_descending=self.topk_descending)
+                        else:
+                            topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                         sample_obj_embeddings = new_embeddings[topk_idx, :512]
                         sample_hum_embeddings = new_embeddings[topk_idx, 512:]
                     else:
-                        # topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                        # sample_obj_embeddings = obj_embeddings[topk_idx, :512]
-                        # topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                        # sample_hum_embeddings = hum_embeddings[topk_idx, 512:]
-                        # pdb.set_trace()
-                        sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                        sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                    
+                        if self.use_outliers:
+                            sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
+                            sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
+                        else:
+                            topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                            sample_obj_embeddings = obj_embeddings[topk_idx, :512]
+                            topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                            sample_hum_embeddings = hum_embeddings[topk_idx, 512:]  
                 else:
                     lens = len(embeddings)
                     sample_index = np.arange(lens)

@@ -46,6 +46,10 @@ from tqdm import tqdm
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 import  hico_dataset_list  as hico_list
+from sklearn.manifold import TSNE
+import matplotlib.cm as cm 
+import matplotlib.pyplot as plt
+import sklearn
 _tokenizer = _Tokenizer()
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
@@ -434,22 +438,22 @@ class UPT(nn.Module):
         feats = torch.cat([feats1,feats2],dim=-1)
         return feats
 
-    def draw_pic(self, embeddings):
-        pkl_file = '../embs_ye.p'
-        with open(pkl_file, 'rb') as f:
-            new_embeddings = pickle.load(f)
-
+    def draw_pic(self, embeddings, original_lens, save_dir):
+        # pkl_file = '../embs_ye.p'
+        # with open(pkl_file, 'rb') as f:
+        #     new_embeddings = pickle.load(f)
+        new_embeddings = embeddings/embeddings.norm(dim=-1,keepdim=True)
         # title = 'load airplane'
         title = 'lick bottle'
 
         # origin_idx = torch.arange(0, new_embeddings.shape[0], 2)
 
-        origin_idx = torch.arange(0,7)
+        origin_idx = torch.arange(0,original_lens)
 
         tsne = TSNE(n_components=2, perplexity=30, n_iter=3000)
         tsne.fit_transform(new_embeddings)
         embeddings_tsne = tsne.embedding_
-        pdb.set_trace()
+        
 
         colors = cm.rainbow(np.linspace(0, 1, 2))
         plt.scatter(embeddings_tsne[:, 0], embeddings_tsne[:, 1], s=1, marker='o', label='augmented', color=colors[0])
@@ -457,10 +461,10 @@ class UPT(nn.Module):
 
         plt.title(title)
         plt.legend(loc='best')
-        plt.savefig(f'origin_vs_augmented_{title}_ye.png')
+        plt.savefig(save_dir)
         plt.clf()
         plt.close()
-
+        return 
     def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, divisor=2):
         '''
         feats: num x 512 (num >= K), tensor, dtype=float32
@@ -941,10 +945,13 @@ class UPT(nn.Module):
                             sample_obj_embeddings =  obj_emb[sample_index]
                             save_embs = torch.cat([hum_emb,obj_emb],dim=-1)
                             # pdb.set_trace()
-                            if i in self.unseen_rare_first:
-                                pdb.set_trace()
-                                with open('embs_ye.p','wb') as f:
-                                    pickle.dump(save_embs,f)
+                            if i in self.unseen_rare_first and len(save_embs)>=2:
+                                # pdb.set_trace()
+                                save_dir = 'save_visual/{}_{}.png'.format('_'.join(self.hico_verb_object_list[i]),lens)
+                                self.draw_pic(save_embs, lens, save_dir)
+                                # pdb.set_trace()
+                                # with open('embs_ye.p','wb') as f:
+                                #     pickle.dump(save_embs,f)
                             # sample_hum_embeddings =  sample_hum_embeddings
                             # sample_obj_embeddings =  sample_obj_embeddings
                             # print(i)
