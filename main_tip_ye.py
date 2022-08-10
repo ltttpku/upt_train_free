@@ -295,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_less_confident', default=False, action='store_true')
     parser.add_argument('--num_shot', default=1, type=int)
 
-    parser.add_argument('--neighours_descending', default=False, action='store_true')
+    parser.add_argument('--neighbours_descending', default=False, action='store_true')
     parser.add_argument('--topk_descending', default=False, action='store_true')
 
     args = parser.parse_args()

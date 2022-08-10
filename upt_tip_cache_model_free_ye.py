@@ -251,7 +251,7 @@ class UPT(nn.Module):
 
         self.preconcat = True
         self._global_norm = False
-        self.neighours_descending = kwargs['neighours_descending']
+        self.neighbours_descending = kwargs['neighbours_descending']
         self.topk_descending = kwargs['topk_descending']
 
         # file1 = 'union_embeddings_cachemodel_clipcrops.p'
@@ -264,7 +264,7 @@ class UPT(nn.Module):
                 ' use_mean_feat:',use_mean_feat, ' softmax_temperature:',self.temperature)
         print('[INFO]: use_outliers:', self.use_outliers, )
         print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat, 'recombine method:', self.recombine_method)
-        print(f'[INFO]: neighours_descending: {self.neighours_descending} , topk_descending:{self.topk_descending}')
+        print(f'[INFO]: neighbours_descending: {self.neighbours_descending} , topk_descending:{self.topk_descending}')
         # save_file2 = 'save_sample_indexes_{}_{}.p'.format(self.class_nums,num_shot)
         save_file2 = None
         self.hois_cooc = torch.load('one_hots.pt')
@@ -419,7 +419,7 @@ class UPT(nn.Module):
         else:
             raise NotImplementedError
 
-    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighours_descending=False, topk_descending=True):
+    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighbours_descending=False, topk_descending=True):
         '''
         feats: num x 512 (num >= K), tensor, dtype=float32
         return: K x 512
@@ -438,7 +438,7 @@ class UPT(nn.Module):
         
         if num_of_neighbours > 0:
             ## select the k largest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1, descending=neighours_descending)[0]
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=neighbours_descending)[0]
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
@@ -738,7 +738,7 @@ class UPT(nn.Module):
                         pdb.set_trace() ## key
                         if self.use_outliers:
                             topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
-                                                    neighours_descending=self.neighours_descending, topk_descending=self.topk_descending)
+                                                    neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
                         else:
                             topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                         sample_obj_embeddings = new_embeddings[topk_idx, :512]
@@ -1581,7 +1581,7 @@ def build_detector(args, class_corr):
         use_outliers = args.use_outliers,
         use_less_confident = args.use_less_confident,
         num_shot = args.num_shot,
-        neighours_descending = args.neighours_descending,
+        neighbours_descending = args.neighbours_descending,
         topk_descending = args.topk_descending,
     )
     return detector
