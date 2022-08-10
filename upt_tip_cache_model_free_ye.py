@@ -237,7 +237,7 @@ class UPT(nn.Module):
         self.feature = 'hum_obj' # union, obj_uni, hum_uni, hum_obj_uni, cahce model 
         ## arguments
         self._load_features = True
-        self.recombine_method = '' ## 'inter' 'intra'
+        self.recombine_method = 'none' ## 'inter' 'intra'
         self.branch = kwargs['branch'] ## F_cluster, F_cluster_semantic_label, F_vis, F_vis_semantic_label
                                   ## F_cluster_F_vis_semantic_label， text_only, vis+text+cluster
         self.temperature = 1
@@ -249,8 +249,11 @@ class UPT(nn.Module):
         self.use_outliers = kwargs['use_outliers']
         self.use_less_confident = kwargs['use_less_confident'] ## priority: use_less_confident > use_outliers > kmeans > iou_rank
 
-        self.preconcat = False
+        self.preconcat = True
         self._global_norm = False
+        self.neighours_descending = kwargs['neighours_descending']
+        self.topk_descending = kwargs['topk_descending']
+
         # file1 = 'union_embeddings_cachemodel_clipcrops.p'
         # file1 = 'union_embeddings_cachemodel_crop_padding_zeros.p'
         file1 = 'union_embeddings_cachemodel_crop_padding_zeros_vitb16.p'
@@ -261,6 +264,7 @@ class UPT(nn.Module):
                 ' use_mean_feat:',use_mean_feat, ' softmax_temperature:',self.temperature)
         print('[INFO]: use_outliers:', self.use_outliers, )
         print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat, 'recombine method:', self.recombine_method)
+        print(f'[INFO]: neighours_descending: {self.neighours_descending} , topk_descending:{self.topk_descending}')
         # save_file2 = 'save_sample_indexes_{}_{}.p'.format(self.class_nums,num_shot)
         save_file2 = None
         self.hois_cooc = torch.load('one_hots.pt')
@@ -415,7 +419,7 @@ class UPT(nn.Module):
         else:
             raise NotImplementedError
 
-    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighours_descenting=False, topk_descending=True):
+    def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighours_descending=False, topk_descending=True):
         '''
         feats: num x 512 (num >= K), tensor, dtype=float32
         return: K x 512
@@ -434,7 +438,7 @@ class UPT(nn.Module):
         
         if num_of_neighbours > 0:
             ## select the k largest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1, descending=neighours_descenting)[0]
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=neighours_descending)[0]
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
@@ -731,10 +735,10 @@ class UPT(nn.Module):
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(hum_embeddings, K=K_shot))
                     
                     if self.preconcat:
-                        pdb.set_trace()
+                        pdb.set_trace() ## key
                         if self.use_outliers:
-                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i],
-                                                    neighours_descenting=self.neighours_descenting, topk_descending=self.topk_descending)
+                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
+                                                    neighours_descending=self.neighours_descending, topk_descending=self.topk_descending)
                         else:
                             topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                         sample_obj_embeddings = new_embeddings[topk_idx, :512]
@@ -1577,5 +1581,7 @@ def build_detector(args, class_corr):
         use_outliers = args.use_outliers,
         use_less_confident = args.use_less_confident,
         num_shot = args.num_shot,
+        neighours_descending = args.neighours_descending,
+        topk_descending = args.topk_descending,
     )
     return detector
