@@ -911,7 +911,7 @@ class UPT(nn.Module):
                             hum_emb = torch.as_tensor(hum_emb)
                             obj_emb = torch.as_tensor(obj_emb)
                             lens = len(hum_emb)
-                            
+                            pdb.set_trace()
                             indexes = torch.arange(0,lens)[:,None]
                             ref_hum = torch.cat(others_hum[i])
                             ref_hum = ref_hum/ ref_hum.norm(dim=-1, keepdim=True)
