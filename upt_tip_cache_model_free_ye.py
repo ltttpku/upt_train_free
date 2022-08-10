@@ -429,9 +429,6 @@ class UPT(nn.Module):
         elif method == 'text':
             return self.use_less_confident(feats, K, text_embedding)  
         # pdb.set_trace()
-        # indices = torch.randperm(feats.shape[0])[:10000]
-        # feats = feats[indices]
-
         feats = feats.cuda().float()
         num_of_neighbours = int(feats.shape[0] * ratio)
         dis_matrix = feats @ feats.t()
@@ -443,14 +440,11 @@ class UPT(nn.Module):
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
         
-        # pdb.set_trace()
         if origin_idx != None:
             dis_vector[origin_idx] += 0.1
 
         topk_idx = torch.argsort(dis_vector, descending=topk_descending)[:K]
         return topk_idx
-        # topk_feats = feats[topk_idx]
-        # return topk_feats.cpu()
     
     def fps(self, points, n_samples):
         """
@@ -714,10 +708,11 @@ class UPT(nn.Module):
                         if new_embeddings.shape[0] < 100:    
                             new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
                             origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
-                            pdb.set_trace()
-                            dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
-                            topk_indices = torch.argsort(dis_vector, descending=False)[:obj_embeddings.shape[0] * K_shot]
-                            new_embeddings = new_embeddings[topk_indices]
+                            # pdb.set_trace()
+                            # dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
+                            # topk_indices = torch.argsort(dis_vector, descending=True)[:obj_embeddings.shape[0] * K_shot]
+                            # new_embeddings = new_embeddings[topk_indices] 
+                            ## -------
                             # if_origin = [topk_idx[i] in origin_idx for i in range(K_shot)]
                             # all_if_origin.extend(if_origin)
                     elif self.recombine_method == 'inter':
@@ -737,12 +732,13 @@ class UPT(nn.Module):
                     if self.preconcat:
                         # pdb.set_trace() ## key
                         if self.use_outliers:
-                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
+                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='fps', text_embedding=self.text_embedding[i], ratio=self.alpha,
                                                     neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
                         else:
                             topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                         sample_obj_embeddings = new_embeddings[topk_idx, :512]
                         sample_hum_embeddings = new_embeddings[topk_idx, 512:]
+                        tmpdct = {'new_embeddings': new_embeddings.cpu(), 'topk_idx': topk_idx.cpu()}
                     else:
                         if self.use_outliers:
                             sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]

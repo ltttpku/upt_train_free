@@ -8,26 +8,28 @@ import random
 import pdb
 import matplotlib.cm as cm 
 
-pkl_file = '../new_embedding.p'
+pkl_file = '../ltemp.p'
 with open(pkl_file, 'rb') as f:
-    new_embeddings = pickle.load(f)
+    dct = pickle.load(f)
 
-title = 'load airplane'
+new_embeddings = dct['new_embeddings']
+topk_idx = dct['topk_idx']
+title = 'fly airplane'
 
-origin_idx = torch.arange(0, new_embeddings.shape[0], 75)
+# origin_idx = torch.arange(0, new_embeddings.shape[0], 75)
 
 tsne = TSNE(n_components=2, perplexity=30, n_iter=3000)
 tsne.fit_transform(new_embeddings)
 embeddings_tsne = tsne.embedding_
 
-
+# pdb.set_trace()
 colors = cm.rainbow(np.linspace(0, 1, 2))
-plt.scatter(embeddings_tsne[:, 0], embeddings_tsne[:, 1], s=1, marker='o', label='augmented', color=colors[0])
-plt.scatter(embeddings_tsne[origin_idx, 0], embeddings_tsne[origin_idx, 1], s=1, marker='o', label='real', color=colors[1])
+plt.scatter(embeddings_tsne[:, 0], embeddings_tsne[:, 1], s=1, marker='o', label='real', color=colors[0])
+plt.scatter(embeddings_tsne[topk_idx, 0], embeddings_tsne[topk_idx, 1], s=1, marker='o', label='chosen outliers', color=colors[1])
 
 plt.title(title)
 plt.legend(loc='best')
-plt.savefig(f'origin_vs_augmented_{title}.png')
+plt.savefig(f'outlier_in_real_{title}.png')
 plt.clf()
 plt.close()
 

@@ -277,7 +277,8 @@ class UPT(nn.Module):
         save_file2 = None
         self.hois_cooc = torch.load('one_hots.pt')
 
-        self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=self.class_nums, num_shot=num_shot,iou_rank=iou_rank,use_mean_feat=use_mean_feat)
+        # self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=self.class_nums, num_shot=num_shot,iou_rank=iou_rank,use_mean_feat=use_mean_feat)
+        self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model_ye(num_shot)
         # pdb.set_trace()
         # self.verb_cache_models, self.verb_one_hots, self.verb_sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=117, num_shot=num_shot,iou_rank=False,use_mean_feat=False)
         if self._global_norm:
@@ -658,8 +659,42 @@ class UPT(nn.Module):
                 one_hots[cumsum_sample_lens[i-1]:cumsum_sample_lens[i], i] = 1 
         return cache_model, one_hots, cluster_num_lst
         
+    def load_cache_model_ye(self,num_shot):
+        anno_file = pickle.load(open('same_HOI_extention_all_objects_withsize.p','rb'))
+        lens = len(anno_file)
+        cache_models = []
+        one_hots = []
+        each_lens = []
+        K_shot = num_shot
+        categories = 600
+        for i, anno in enumerate(anno_file):
+            # pdb.set_trace()
+            gt_sample_lens = anno['gt_sample_lens'] 
+            final_hum = anno['final_hum'][:gt_sample_lens]
+            final_obj = anno['final_obj'][:gt_sample_lens]
+            
+            save_embs = torch.cat([final_hum,final_obj],dim=-1)
+            
+            range_lens = np.arange(len(final_hum))
+            new_K_shot = min(len(final_hum), K_shot)
+            sample_index = np.random.choice(range_lens,new_K_shot,replace=False)
+            sample_hum_embeddings = final_hum[sample_index]
+            sample_obj_embeddings = final_obj[sample_index]
+            
+            topk_idx_hum = self.select_outliers(hum_emb, K=100, method='default', text_embedding=self.text_embedding[i],)
+            
 
+            cache_models.append(torch.cat([sample_hum_embeddings, sample_obj_embeddings],dim=-1))
+            
+            lens = len(sample_obj_embeddings)
 
+            one_hot = torch.zeros((lens,categories),dtype=torch.long)
+            one_hot[:,i] = 1
+            one_hots.append(one_hot)
+            each_lens.append(lens)
+        cache_models = torch.cat(cache_models)
+        one_hots = torch.cat(one_hots)
+        return cache_models,one_hots, each_lens
     def load_cache_model(self,file1, file2=None, category='verb', feature='union',class_nums=117, num_shot=10, iou_rank=False, use_mean_feat=False):  ## √
         '''
         To Do
@@ -911,7 +946,7 @@ class UPT(nn.Module):
                             hum_emb = torch.as_tensor(hum_emb)
                             obj_emb = torch.as_tensor(obj_emb)
                             lens = len(hum_emb)
-                            pdb.set_trace()
+                            pdb.set_trace
                             indexes = torch.arange(0,lens)[:,None]
                             ref_hum = torch.cat(others_hum[i])
                             ref_hum = ref_hum/ ref_hum.norm(dim=-1, keepdim=True)
@@ -1202,6 +1237,7 @@ class UPT(nn.Module):
             )
             all_logits.append(logits.float())
         return all_logits,prior_collated, boxes_h_collated, boxes_o_collated, object_class_collated ,all_boxes
+ 
 
 
     def compute_roi_embeddings(self, features: OrderedDict, image_shapes: Tensor, region_props: List[dict]): ### xx
