@@ -119,9 +119,9 @@ def main(rank, args):
             f" none-rare: {ap[non_rare].mean():.4f},"
             
         )
-        print(args.resume)
+        # print(args.resume)
         import datetime
-        with open(f'logs/outliers={args.use_outliers}_branch={args.branch}.log', 'a') as f:
+        with open(f'logs/LT_outliers={args.use_outliers}_branch={args.branch}.log', 'a') as f:
             ## write all args
             f.write(str(datetime.datetime.now()))
             f.write('\n')

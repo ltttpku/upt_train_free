@@ -735,7 +735,7 @@ class UPT(nn.Module):
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(hum_embeddings, K=K_shot))
                     
                     if self.preconcat:
-                        pdb.set_trace() ## key
+                        # pdb.set_trace() ## key
                         if self.use_outliers:
                             topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
                                                     neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
