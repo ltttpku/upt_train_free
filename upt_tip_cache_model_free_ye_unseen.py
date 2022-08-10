@@ -232,7 +232,7 @@ class UPT(nn.Module):
                 7, 7, 25, 25, 25, 25, 25, 25, 25, 25, 75, 75, 75, 75, 40, 40, 40, 40, 40,
                 40, 40, 22, 22, 22, 22, 22
             ]
-
+        self.hico_verb_object_list = hico_verb_object_list
         ## to do
         self.dicts = {}
         self.feature = 'hum_obj' # union, obj_uni, hum_uni, hum_obj_uni, cahce model 
@@ -254,7 +254,8 @@ class UPT(nn.Module):
 
         self.use_swap = False
         self.unseen_setting = args.is_unseen
-    
+
+        # self.sample_strategy = 'random'
         self.unseen_rare_first = hico_list.hico_unseen_index['rare_first']
         self.unseen_nonrare_first = hico_list.hico_unseen_index['non_rare_first']
         self.count = 0
@@ -273,7 +274,7 @@ class UPT(nn.Module):
         self.hois_cooc = torch.load('one_hots.pt')
 
         self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=self.class_nums, num_shot=num_shot,iou_rank=iou_rank,use_mean_feat=use_mean_feat)
-        pdb.set_trace()
+        # pdb.set_trace()
         # self.verb_cache_models, self.verb_one_hots, self.verb_sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=117, num_shot=num_shot,iou_rank=False,use_mean_feat=False)
         if self._global_norm:
             self.cache_models /= self.cache_models.norm(dim=-1, keepdim=True)
@@ -432,6 +433,34 @@ class UPT(nn.Module):
         feats2 = feats2.repeat(lens1, 1)
         feats = torch.cat([feats1,feats2],dim=-1)
         return feats
+
+    def draw_pic(self, embeddings):
+        pkl_file = '../embs_ye.p'
+        with open(pkl_file, 'rb') as f:
+            new_embeddings = pickle.load(f)
+
+        # title = 'load airplane'
+        title = 'lick bottle'
+
+        # origin_idx = torch.arange(0, new_embeddings.shape[0], 2)
+
+        origin_idx = torch.arange(0,7)
+
+        tsne = TSNE(n_components=2, perplexity=30, n_iter=3000)
+        tsne.fit_transform(new_embeddings)
+        embeddings_tsne = tsne.embedding_
+        pdb.set_trace()
+
+        colors = cm.rainbow(np.linspace(0, 1, 2))
+        plt.scatter(embeddings_tsne[:, 0], embeddings_tsne[:, 1], s=1, marker='o', label='augmented', color=colors[0])
+        plt.scatter(embeddings_tsne[origin_idx, 0], embeddings_tsne[origin_idx, 1], s=1, marker='o', label='real', color=colors[1])
+
+        plt.title(title)
+        plt.legend(loc='best')
+        plt.savefig(f'origin_vs_augmented_{title}_ye.png')
+        plt.clf()
+        plt.close()
+
     def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, divisor=2):
         '''
         feats: num x 512 (num >= K), tensor, dtype=float32
@@ -650,6 +679,7 @@ class UPT(nn.Module):
         object_feat = [[] for i in range(80)]
 
         others_hum = [[] for i in range(categories)]
+        count = 0
         for file_n in filenames:
             anno = annotation[file_n]
             if categories == 117: verbs = anno['verbs']
@@ -670,10 +700,15 @@ class UPT(nn.Module):
 
             orig_verbs = anno['verbs']
             objects_label = torch.as_tensor(anno['objects'])
+            
             if len(verbs) == 0:
                 print(file_n)
+            # if torch.sum(objects_label[0]==objects_label) != objects_label.shape[0]:
+            #     print(objects_label)
+            #     pdb.set_trace()
+            count+=1
             for i, v in enumerate(verbs):
-                pdb.set_trace()
+                
                 union_embeddings[v].append(union_features[i] / np.linalg.norm(union_features[i]))
                 obj_embeddings[v].append(object_features[i] / np.linalg.norm(object_features[i]))
                 hum_embeddings[v].append(huamn_features[i] / np.linalg.norm(huamn_features[i]))
@@ -685,6 +720,14 @@ class UPT(nn.Module):
                 ind_y = torch.where(y[ind_x]!=i)[0]
                 object_pair = torch.where(objects_label[i]==objects_label[ind_y])[0]
                 ind_y_new = ind_y[object_pair]
+                if len(ind_y_new) == 1:
+                    # ind_y_new = ind_y_new[None,]
+                    others_hum[v].append(torch.as_tensor(huamn_features[ind_y_new][None,]))
+                    # pdb.set_trace()
+                else:
+                    others_hum[v].append(torch.as_tensor(huamn_features[ind_y_new]))
+
+
                 verbs_iou[v].append(ious[i])
                 if v in self.unseen_nonrare_first and self.unseen_setting:
                     # pdb.set_trace()
@@ -796,7 +839,7 @@ class UPT(nn.Module):
                     #     sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(np.array(hum_emb), K=K_shot))
                     # pdb.set_trace()
                     if self.use_outliers:
-                        hum_feat_pool = self.select_human_pool(hum_emb, hum_embeddings, i)
+                        # hum_feat_pool = self.select_human_pool(hum_emb, hum_embeddings, i)
 
                         if i in self.unseen_nonrare_first and self.unseen_setting:
                             # pdb.set_trace()
@@ -855,16 +898,67 @@ class UPT(nn.Module):
 
                             # sample_obj_embeddings = inter_obj_embeddings[self.select_outliers(inter_obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
                             # sample_hum_embeddings = inter_hum_embeddings[self.select_outliers(inter_hum_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                    
+                            
+                            
                             sample_obj_embeddings = obj_emb[self.select_outliers(obj_emb, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
                             sample_hum_embeddings = hum_emb[self.select_outliers(hum_emb, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                    
+                    else: # use systh
+                        try:
+                            hum_emb = torch.as_tensor(hum_emb)
+                            obj_emb = torch.as_tensor(obj_emb)
+                            lens = len(hum_emb)
+                            
+                            indexes = torch.arange(0,lens)[:,None]
+                            ref_hum = torch.cat(others_hum[i])
+                            ref_hum = ref_hum/ ref_hum.norm(dim=-1, keepdim=True)
+                            new_hum = torch.cat([hum_emb,ref_hum])
+                            sim_ = new_hum @ new_hum.t()
+                            topk_lens = min(6, len(sim_))
+                            topk_sample = sim_.topk(topk_lens,dim=-1)[1][:lens]
+                            # ref_x, ref_y = torch.nonzero(topk_sample != indexes).unbind(1)
+                            # final_indexes = topk_sample[ref_x,ref_y].reshape(-1,topk_lens-1)
+                            # ref_hum_embs = new_hum[final_indexes].unsqueeze(1).repeat(1,topk_lens-1,1,1)
+                            ref_hum_embs = new_hum[topk_sample[:,1:]].unsqueeze(1).repeat(1,topk_lens-1,1,1)
+                            print("original lens: {}, augmented lens:{}, label:{}".format(lens,ref_hum_embs.shape[1]*ref_hum_embs.shape[0], self.hico_verb_object_list[i]))
+
+
+                            object_cls = self.HOI_IDX_TO_OBJ_IDX[i]
+                            object_ref_embs = torch.stack([torch.as_tensor(obj) for obj in object_feat[object_cls]])
+                            
+                            sim_obj = obj_emb @ object_ref_embs.t()
+                            topk_sample_obj = sim_obj.topk(topk_lens-1,dim=-1)[1][:lens]
+                            ref_obj_embs = object_ref_embs[topk_sample_obj].unsqueeze(2).repeat(1,1,topk_lens-1,1)
+                            
+                            hum_emb = torch.cat([hum_emb,ref_hum_embs.view(-1,512)],dim=0)
+                            obj_emb = torch.cat([obj_emb,ref_obj_embs.view(-1,512)],dim=0)
+                            
+                            new_lens = len(hum_emb)
+                            
+                            new_K_shot = min(new_lens, K_shot)
+                            sample_index = np.random.choice(new_lens,new_K_shot,replace=False)
+                            
+                            sample_hum_embeddings =  hum_emb[sample_index]
+                            sample_obj_embeddings =  obj_emb[sample_index]
+                            save_embs = torch.cat([hum_emb,obj_emb],dim=-1)
+                            # pdb.set_trace()
+                            if i in self.unseen_rare_first:
+                                pdb.set_trace()
+                                with open('embs_ye.p','wb') as f:
+                                    pickle.dump(save_embs,f)
+                            # sample_hum_embeddings =  sample_hum_embeddings
+                            # sample_obj_embeddings =  sample_obj_embeddings
+                            # print(i)
+                        except:
+                            pdb.set_trace()
                 else:
+                    # pdb.set_trace()
+
+
                     lens = len(embeddings)
                     sample_index = np.arange(lens)
-                    sample_embeddings = torch.as_tensor(np.array(embeddings)).cuda()
-                    sample_obj_embeddings = torch.as_tensor(np.array(obj_emb)).cuda()
-                    sample_hum_embeddings = torch.as_tensor(np.array(hum_emb)).cuda()
+                    sample_embeddings = torch.as_tensor(np.array(embeddings))
+                    sample_obj_embeddings = torch.as_tensor(np.array(obj_emb))
+                    sample_hum_embeddings = torch.as_tensor(np.array(hum_emb))
 
                 lens = len(sample_obj_embeddings)
 

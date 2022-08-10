@@ -237,6 +237,7 @@ class UPT(nn.Module):
         self.feature = 'hum_obj' # union, obj_uni, hum_uni, hum_obj_uni, cahce model 
         ## arguments
         self._load_features = True
+        self.recombine_method = '' ## 'inter' 'intra'
         self.branch = kwargs['branch'] ## F_cluster, F_cluster_semantic_label, F_vis, F_vis_semantic_label
                                   ## F_cluster_F_vis_semantic_label， text_only, vis+text+cluster
         self.temperature = 1
@@ -248,7 +249,7 @@ class UPT(nn.Module):
         self.use_outliers = kwargs['use_outliers']
         self.use_less_confident = kwargs['use_less_confident'] ## priority: use_less_confident > use_outliers > kmeans > iou_rank
 
-        self.preconcat = True
+        self.preconcat = False
         self._global_norm = False
         # file1 = 'union_embeddings_cachemodel_clipcrops.p'
         # file1 = 'union_embeddings_cachemodel_crop_padding_zeros.p'
@@ -259,7 +260,7 @@ class UPT(nn.Module):
                 ' use_kmeans:',self.use_kmeans, ' iou_rank:',iou_rank, \
                 ' use_mean_feat:',use_mean_feat, ' softmax_temperature:',self.temperature)
         print('[INFO]: use_outliers:', self.use_outliers, )
-        print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat,)
+        print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat, 'recombine method:', self.recombine_method)
         # save_file2 = 'save_sample_indexes_{}_{}.p'.format(self.class_nums,num_shot)
         save_file2 = None
         self.hois_cooc = torch.load('one_hots.pt')
@@ -433,7 +434,7 @@ class UPT(nn.Module):
         
         if num_of_neighbours > 0:
             ## select the k largest num for every row of the distance matrix
-            dis_matrix = torch.sort(dis_matrix, dim=1, descending=False)[0]
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
             dis_vector = dis_matrix.mean(dim=1)
@@ -442,7 +443,7 @@ class UPT(nn.Module):
         if origin_idx != None:
             dis_vector[origin_idx] += 0.1
 
-        topk_idx = torch.argsort(dis_vector, descending=False)[:K]
+        topk_idx = torch.argsort(dis_vector, descending=True)[:K]
         return topk_idx
         # topk_feats = feats[topk_idx]
         # return topk_feats.cpu()
@@ -706,9 +707,13 @@ class UPT(nn.Module):
 
                     if self.recombine_method == 'intra':
                         origin_embeddings = new_embeddings.clone().detach() ## 60 x 1024
-                        if new_embeddings.shape[0] <= 100:    
+                        if new_embeddings.shape[0] < 100:    
                             new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
-                            # origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
+                            origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
+                            pdb.set_trace()
+                            dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
+                            topk_indices = torch.argsort(dis_vector, descending=False)[:obj_embeddings.shape[0] * K_shot]
+                            new_embeddings = new_embeddings[topk_indices]
                             # if_origin = [topk_idx[i] in origin_idx for i in range(K_shot)]
                             # all_if_origin.extend(if_origin)
                     elif self.recombine_method == 'inter':
@@ -717,7 +722,6 @@ class UPT(nn.Module):
                         # inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
                         # hum_embeddings = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
                         # hum_embeddings = torch.cat((hum_embeddings), dim=0)
-
                         # inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
                         # obj_embeddings = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
                         # obj_embeddings = torch.cat((obj_embeddings), dim=0)
@@ -725,18 +729,19 @@ class UPT(nn.Module):
                     if self.use_kmeans:
                         sample_obj_embeddings = torch.from_numpy(self.naive_kmeans(obj_embeddings, K=K_shot))
                         sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(hum_embeddings, K=K_shot))
-
                     if self.preconcat:
+                        # pdb.set_trace()
                         topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                         sample_obj_embeddings = new_embeddings[topk_idx, :512]
                         sample_hum_embeddings = new_embeddings[topk_idx, 512:]
                     else:
-                        topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                        sample_obj_embeddings = obj_embeddings[topk_idx, :512]
-                        topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                        sample_hum_embeddings = hum_embeddings[topk_idx, 512:]
-                        # sample_obj_embeddings = obj_emb[self.select_outliers(obj_emb, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                        # sample_hum_embeddings = hum_emb[self.select_outliers(hum_emb, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
+                        # topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                        # sample_obj_embeddings = obj_embeddings[topk_idx, :512]
+                        # topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                        # sample_hum_embeddings = hum_embeddings[topk_idx, 512:]
+                        # pdb.set_trace()
+                        sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
+                        sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
                     
                 else:
                     lens = len(embeddings)
