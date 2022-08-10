@@ -121,13 +121,13 @@ def main(rank, args):
         )
         # print(args.resume)
         import datetime
-        with open(f'logs/LT_outliers={args.use_outliers}_branch={args.branch}.log', 'a') as f:
+        with open(f'logs/LT_kmeans={args.use_kmeans}_outliers={args.use_outliers}_outmethod={args.out_method}.log', 'a') as f:
             ## write all args
             f.write(str(datetime.datetime.now()))
             f.write('\n')
             json.dump(args.__dict__, f)
             f.write('\n')
-            f.write(f'alpha: {args.alpha}, neighbours_descending: {args.neighbours_descending} , topk_descending:{args.topk_descending}')
+            f.write(f'numshot:{args.num_shot}, alpha: {args.alpha}, neighbours_descending: {args.neighbours_descending} , topk_descending:{args.topk_descending}')
             f.write(f'{100 * ap.mean():.2f} ')
             f.write(f'{100 * ap[rare].mean():.2f} ')
             f.write(f'{100 * ap[non_rare].mean():.2f}\n')
@@ -298,6 +298,11 @@ if __name__ == '__main__':
 
     parser.add_argument('--neighbours_descending', default=False, action='store_true')
     parser.add_argument('--topk_descending', default=False, action='store_true')
+
+    parser.add_argument('--use_kmeans', default=False, action='store_true')
+    parser.add_argument('--out_method', default='default',type=str)
+    parser.add_argument('--preconcat', default=False, action='store_true')
+    parser.add_argument('--strategy', default='random',type=str)
 
     args = parser.parse_args()
     print(args)

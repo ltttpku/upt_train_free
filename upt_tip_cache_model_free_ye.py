@@ -244,12 +244,13 @@ class UPT(nn.Module):
         self.topk = topk
         num_shot = kwargs['num_shot']
         iou_rank = False
-        self.use_kmeans = False # # priority: kmeans>iou_rank
+        self.use_kmeans = kwargs['use_kmeans'] # # priority: kmeans>iou_rank
+        self.out_method = kwargs['out_method']
         use_mean_feat = False
         self.use_outliers = kwargs['use_outliers']
         self.use_less_confident = kwargs['use_less_confident'] ## priority: use_less_confident > use_outliers > kmeans > iou_rank
 
-        self.preconcat = True
+        self.preconcat = kwargs['preconcat']
         self._global_norm = False
         self.neighbours_descending = kwargs['neighbours_descending']
         self.topk_descending = kwargs['topk_descending']
@@ -384,7 +385,7 @@ class UPT(nn.Module):
         cluster_centers = kmeans.cluster_centers_
         return cluster_centers
     
-    def search_best_k_for_kmeans(self, data, ):
+    def search_best_k_for_kmeans(self, data,):
         """
         Search the best k for kmeans
         """
@@ -700,7 +701,7 @@ class UPT(nn.Module):
                     obj_embeddings = torch.as_tensor(np.array(obj_emb)).float()
                     hum_embeddings =  torch.as_tensor(np.array(hum_emb)).float()   
 
-                    new_embeddings = torch.cat([ obj_embeddings, hum_embeddings], dim=-1) ## concat before outlier, true
+                    new_embeddings = torch.cat([ obj_embeddings, hum_embeddings], dim=-1)
                     new_embeddings = new_embeddings.cuda().float()        
 
                     if self.recombine_method == 'intra':
@@ -708,7 +709,6 @@ class UPT(nn.Module):
                         if new_embeddings.shape[0] < 100:    
                             new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
                             origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
-                            # pdb.set_trace()
                             # dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
                             # topk_indices = torch.argsort(dis_vector, descending=True)[:obj_embeddings.shape[0] * K_shot]
                             # new_embeddings = new_embeddings[topk_indices] 
@@ -724,25 +724,26 @@ class UPT(nn.Module):
                         # inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
                         # obj_embeddings = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
                         # obj_embeddings = torch.cat((obj_embeddings), dim=0)
-
-                    if self.use_kmeans:
-                        sample_obj_embeddings = torch.from_numpy(self.naive_kmeans(obj_embeddings, K=K_shot))
-                        sample_hum_embeddings = torch.from_numpy(self.naive_kmeans(hum_embeddings, K=K_shot))
                     
                     if self.preconcat:
                         # pdb.set_trace() ## key
-                        if self.use_outliers:
-                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
-                                                    neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
+                        if self.use_kmeans:
+                            new_embeddings = self.naive_kmeans(np.array(new_embeddings.cpu()), K=K_shot)
+                            sample_obj_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
+                            sample_hum_embeddings = torch.as_tensor(new_embeddings[:, 512:]).float()
                         else:
-                            topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                        sample_obj_embeddings = new_embeddings[topk_idx, :512]
-                        sample_hum_embeddings = new_embeddings[topk_idx, 512:]
-                        tmpdct = {'new_embeddings': new_embeddings.cpu(), 'topk_idx': topk_idx.cpu()}
+                            if self.use_outliers:
+                                topk_idx = self.select_outliers(new_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i], ratio=self.alpha,
+                                                        neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
+                            else:
+                                topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                            sample_obj_embeddings = new_embeddings[topk_idx, :512]
+                            sample_hum_embeddings = new_embeddings[topk_idx, 512:]
+                        # tmpdct = {'new_embeddings': new_embeddings.cpu(), 'topk_idx': topk_idx.cpu()}
                     else:
                         if self.use_outliers:
-                            sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
-                            sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i])]
+                            sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
+                            sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
                         else:
                             topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
                             sample_obj_embeddings = obj_embeddings[topk_idx, :512]
@@ -1138,7 +1139,7 @@ class UPT(nn.Module):
 
                 logits_t = feat3 @ self.text_embedding.t()
 
-                logits = self.alpha * logits_v + logits_t
+                logits = logits_v + logits_t
             elif self.branch == 'verb':
                 # logits_verb = ((f_vis @ self.verb_cache_models.t()) @ self.verb_one_hots)  / self.verb_sample_lens
                 # logits_verb = logits_verb[:, self.HOI_IDX_TO_ACT_IDX] 
@@ -1579,5 +1580,8 @@ def build_detector(args, class_corr):
         num_shot = args.num_shot,
         neighbours_descending = args.neighbours_descending,
         topk_descending = args.topk_descending,
+        use_kmeans = args.use_kmeans,
+        out_method = args.out_method,
+        preconcat = args.preconcat
     )
     return detector
