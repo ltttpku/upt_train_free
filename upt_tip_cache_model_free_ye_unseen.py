@@ -479,7 +479,8 @@ class UPT(nn.Module):
         # indices = torch.randperm(feats.shape[0])[:10000]
         # feats = feats[indices]
 
-        feats = feats.cuda().float()
+        # feats = feats.cuda().float()
+        feats = feats.float()
         num_of_neighbours = feats.shape[0] // divisor
         ## calculate the distance between each pair of features
         dis_matrix = feats @ feats.t()
@@ -487,7 +488,8 @@ class UPT(nn.Module):
         if num_of_neighbours > 0:
             ## select the k smallest num for every row of the distance matrix
             # pdb.set_trace()
-            dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
+            # dis_matrix = torch.sort(dis_matrix, dim=1, descending=True)[0]
+            dis_matrix = torch.sort(dis_matrix, dim=1, descending=False)[0]
             ## sum the k smallest nums for every row
             dis_vector = (dis_matrix[:,:num_of_neighbours].sum(1)) / num_of_neighbours
         else: ## neighours==all other vectors
@@ -500,7 +502,8 @@ class UPT(nn.Module):
         # pdb.set_trace()
         # idx = torch.cat((torch.argsort(dis_vector, descending=outlier)[:K - K //10], torch.argsort(dis_vector, descending=outlier)[-(K//10):]), dim=0)
         # return feats[idx]
-        topk_idx = torch.argsort(dis_vector, descending=False)[:K]
+        # topk_idx = torch.argsort(dis_vector, descending=False)[:K]
+        topk_idx = torch.argsort(dis_vector, descending=True)[:K]
         return topk_idx
         # topk_feats = feats[topk_idx]
         # return topk_feats.cpu()
@@ -670,19 +673,27 @@ class UPT(nn.Module):
         for i, anno in enumerate(anno_file):
             # pdb.set_trace()
             gt_sample_lens = anno['gt_sample_lens'] 
-            final_hum = anno['final_hum'][:gt_sample_lens]
-            final_obj = anno['final_obj'][:gt_sample_lens]
+            final_hum = anno['final_hum']
+            final_obj = anno['final_obj']
             
             save_embs = torch.cat([final_hum,final_obj],dim=-1)
             
             range_lens = np.arange(len(final_hum))
             new_K_shot = min(len(final_hum), K_shot)
-            sample_index = np.random.choice(range_lens,new_K_shot,replace=False)
-            sample_hum_embeddings = final_hum[sample_index]
-            sample_obj_embeddings = final_obj[sample_index]
-            
-            topk_idx_hum = self.select_outliers(hum_emb, K=100, method='default', text_embedding=self.text_embedding[i],)
-            
+            # sample_index = np.random.choice(range_lens,new_K_shot,replace=False)
+            # sample_hum_embeddings = final_hum[sample_index]
+            # sample_obj_embeddings = final_obj[sample_index]
+            # pdb.set_trace()
+            cancat_feat = torch.cat([final_hum,final_obj],dim=-1)
+            if len(range_lens) > 100000000:
+                topk_idx_hum = self.select_outliers(cancat_feat, K=new_K_shot, method='default', text_embedding=self.text_embedding[i],)
+                sample_hum_embeddings = final_hum[topk_idx_hum]
+                sample_obj_embeddings = final_obj[topk_idx_hum]
+            else:
+                new_concat_feat = torch.cat([final_hum[:gt_sample_lens],final_obj[:gt_sample_lens]],dim=-1)
+                topk_idx_hum = self.select_outliers(new_concat_feat, K=new_K_shot, method='default', text_embedding=self.text_embedding[i],)
+                sample_hum_embeddings = final_hum[topk_idx_hum]
+                sample_obj_embeddings = final_obj[topk_idx_hum]
 
             cache_models.append(torch.cat([sample_hum_embeddings, sample_obj_embeddings],dim=-1))
             

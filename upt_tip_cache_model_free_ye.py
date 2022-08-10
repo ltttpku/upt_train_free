@@ -732,7 +732,7 @@ class UPT(nn.Module):
                     if self.preconcat:
                         # pdb.set_trace() ## key
                         if self.use_outliers:
-                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='fps', text_embedding=self.text_embedding[i], ratio=self.alpha,
+                            topk_idx = self.select_outliers(new_embeddings, K=K_shot, method='default', text_embedding=self.text_embedding[i], ratio=self.alpha,
                                                     neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending)
                         else:
                             topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
