@@ -237,7 +237,7 @@ class UPT(nn.Module):
         self.feature = 'hum_obj' # union, obj_uni, hum_uni, hum_obj_uni, cahce model 
         ## arguments
         self._load_features = True
-        self.recombine_method = 'intra' ## 'inter' 'intra'
+        self.recombine_method = 'none' ## 'inter' 'intra'
         self.branch = kwargs['branch'] ## F_cluster, F_cluster_semantic_label, F_vis, F_vis_semantic_label
                                   ## F_cluster_F_vis_semantic_label， text_only, vis+text+cluster
         self.temperature = 1
@@ -257,7 +257,8 @@ class UPT(nn.Module):
 
         # file1 = 'union_embeddings_cachemodel_clipcrops.p'
         # file1 = 'union_embeddings_cachemodel_crop_padding_zeros.p'
-        file1 = 'union_embeddings_cachemodel_crop_padding_zeros_vitb16.p'
+        # file1 = 'union_embeddings_cachemodel_crop_padding_zeros_vitb16.p'
+        file1 = 'few_shot_pickle/yzj/few_shot_4_2189_1441_vit16emb.p'
         print('[INFO]: in _ye.py')
         print('>>> branch:', self.branch)
         print('>>> feature_type:', self.feature, 'topk:', self.topk, \
@@ -699,30 +700,27 @@ class UPT(nn.Module):
 
                 obj_embeddings = torch.as_tensor(np.array(obj_emb)).float()
                 hum_embeddings =  torch.as_tensor(np.array(hum_emb)).float()   
-                
+                new_embeddings = torch.cat([ obj_embeddings, hum_embeddings], dim=-1)
+                new_embeddings = new_embeddings.cuda().float()
+
+                origin_idx = None
+                if self.recombine_method == 'intra':
+                    # origin_embeddings = new_embeddings.clone().detach() ## 60 x 1024
+                    # if new_embeddings.shape[0] < 100:    
+                    new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
+                        # origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
+                elif self.recombine_method == 'inter':
+                    raise NotImplementedError
+                    ## inter-class
+                    # inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
+                    # hum_embeddings = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
+                    # hum_embeddings = torch.cat((hum_embeddings), dim=0)
+                    # inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
+                    # obj_embeddings = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
+                    # obj_embeddings = torch.cat((obj_embeddings), dim=0)
+
                 if len(range_lens) > K_shot:
-                    lens = K_shot
-                    new_embeddings = torch.cat([ obj_embeddings, hum_embeddings], dim=-1)
-                    new_embeddings = new_embeddings.cuda().float()        
-                    origin_idx = None
-                    if self.recombine_method == 'intra':
-                        origin_embeddings = new_embeddings.clone().detach() ## 60 x 1024
-                        if new_embeddings.shape[0] < 100:    
-                            new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
-                            origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
-                            # dis_vector = (new_embeddings @ origin_embeddings.t()).mean(dim=-1)
-                            # topk_indices = torch.argsort(dis_vector, descending=True)[:obj_embeddings.shape[0] * K_shot]
-                            # new_embeddings = new_embeddings[topk_indices] 
-                    elif self.recombine_method == 'inter':
-                        raise NotImplementedError
-                        ## inter-class
-                        # inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
-                        # hum_embeddings = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
-                        # hum_embeddings = torch.cat((hum_embeddings), dim=0)
-                        # inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
-                        # obj_embeddings = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
-                        # obj_embeddings = torch.cat((obj_embeddings), dim=0)
-                    
+                    lens = K_shot                    
                     if self.preconcat:
                         # pdb.set_trace() ## key
                         if self.use_kmeans:
@@ -750,7 +748,7 @@ class UPT(nn.Module):
                         else:
                             raise NotImplementedError
                 else:
-                    lens = len(embeddings)
+                    lens = len(embeddings)    
                     sample_obj_embeddings = obj_embeddings
                     sample_hum_embeddings = hum_embeddings
 
