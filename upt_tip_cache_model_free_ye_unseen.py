@@ -274,13 +274,13 @@ class UPT(nn.Module):
                 ' use_kmeans:',self.use_kmeans, ' iou_rank:',iou_rank, \
                 ' use_mean_feat:',use_mean_feat, ' softmax_temperature:',self.temperature)
         print('[INFO]: use_outliers:', self.use_outliers, )
-        print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat, 'global_norm:', self._global_norm, 'outlier_method')
+        print('[INFO]: num_shot:', num_shot, 'preconcat:', self.preconcat, 'global_norm:', self._global_norm, 'outlier_method:',self.outlier_method, 'sample strategy:',self.sample_strategy)
         # save_file2 = 'save_sample_indexes_{}_{}.p'.format(self.class_nums,num_shot)
         save_file2 = None
         self.hois_cooc = torch.load('one_hots.pt')
 
         # self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=self.class_nums, num_shot=num_shot,iou_rank=iou_rank,use_mean_feat=use_mean_feat)
-        self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model_ye(num_shot, strategy, self.outlier_method)
+        self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model_ye(num_shot, self.sample_strategy, self.outlier_method)
         # pdb.set_trace()
         # self.verb_cache_models, self.verb_one_hots, self.verb_sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=117, num_shot=num_shot,iou_rank=False,use_mean_feat=False)
         if self._global_norm:
@@ -665,7 +665,7 @@ class UPT(nn.Module):
         return cache_model, one_hots, cluster_num_lst
         
     def load_cache_model_ye(self,num_shot, strategy='random', method='default'):
-        anno_file = pickle.load(open('same_HOI_extention_all_objects_3rule_new.p','rb'))
+        anno_file = pickle.load(open('same_HOI_extention_all_objects_3rule_new_two_100samples.p','rb'))
         lens = len(anno_file)
         cache_models = []
         one_hots = []
@@ -680,21 +680,32 @@ class UPT(nn.Module):
             save_embs = torch.cat([final_hum,final_obj],dim=-1)
             range_lens = np.arange(len(final_hum))
             new_K_shot = min(len(final_hum), K_shot)
+            all_samples = len(range_lens)
             if strategy == 'random':
-                topk_idx = torch.randperm(new_embeddings.shape[0])[:new_K_shot] 
-                sample_hum_embeddings = final_hum[topk_idx]
-                sample_obj_embeddings = final_obj[topk_idx]
+                # pdb.set_trace()
+                if gt_sample_lens<100:
+                    topk_idx = torch.randperm(save_embs.shape[0])[:new_K_shot] 
+                    sample_hum_embeddings = final_hum[topk_idx]
+                    sample_obj_embeddings = final_obj[topk_idx]
+                else:
+                    topk_idx = torch.randperm(save_embs[:gt_sample_lens].shape[0])[:new_K_shot] 
+                    sample_hum_embeddings = final_hum[topk_idx]
+                    sample_obj_embeddings = final_obj[topk_idx]
             elif strategy == 'outliers_normal':
                 cancat_feat = torch.cat([final_hum,final_obj],dim=-1)
-                if gt_sample_lens < K_shot:
-                    topk_idx_hum = self.select_outliers(cancat_feat, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
-                    sample_hum_embeddings = final_hum[topk_idx_hum]
-                    sample_obj_embeddings = final_obj[topk_idx_hum]
-                else:
-                    new_concat_feat = torch.cat([final_hum[:gt_sample_lens],final_obj[:gt_sample_lens]],dim=-1)
-                    topk_idx_hum = self.select_outliers(new_concat_feat, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
-                    sample_hum_embeddings = final_hum[topk_idx_hum]
-                    sample_obj_embeddings = final_obj[topk_idx_hum]
+                topk_idx_hum = self.select_outliers(cancat_feat, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
+                sample_hum_embeddings = final_hum[topk_idx_hum]
+                sample_obj_embeddings = final_obj[topk_idx_hum]
+
+                # if gt_sample_lens < K_shot:
+                #     topk_idx_hum = self.select_outliers(cancat_feat, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
+                #     sample_hum_embeddings = final_hum[topk_idx_hum]
+                #     sample_obj_embeddings = final_obj[topk_idx_hum]
+                # else:
+                #     new_concat_feat = torch.cat([final_hum[:gt_sample_lens],final_obj[:gt_sample_lens]],dim=-1)
+                #     topk_idx_hum = self.select_outliers(new_concat_feat, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
+                #     sample_hum_embeddings = final_hum[topk_idx_hum]
+                #     sample_obj_embeddings = final_obj[topk_idx_hum]
             elif strategy == 'outliers_for_outliers':
                 cancat_feat = torch.cat([final_hum,final_obj],dim=-1)
                 if gt_sample_lens < K_shot:
@@ -702,25 +713,49 @@ class UPT(nn.Module):
                     sample_hum_embeddings = final_hum[topk_idx_hum]
                     sample_obj_embeddings = final_obj[topk_idx_hum]
                 else:
-                    concat_feat_gt = torch.cat([final_hum[:gt_sample_lens],final_obj[:gt_sample_lens]],dim=-1)
-                    concat_feat_aug = cancat_feat[gt_sample_lens:]
-                    topk_idx_aug = self.select_outliers(concat_feat_aug, K=concat_feat_gt.shape[0], method=method, text_embedding=self.text_embedding[i],)
-                    concat_feat_aug = concat_feat_aug[topk_idx_aug]
-                    concat_feat_new = torch.cat([concat_feat_gt,concat_feat_aug],dim=-1)
-                    topk_idx_hum = self.select_outliers(concat_feat_new, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
-                    sample_hum_embeddings = final_hum[topk_idx_hum]
-                    sample_obj_embeddings = final_obj[topk_idx_hum]
+                    try:
+                        concat_feat_gt = torch.cat([final_hum[:gt_sample_lens],final_obj[:gt_sample_lens]],dim=-1)
+                        concat_feat_aug = cancat_feat[gt_sample_lens:]
+                        topk_idx_aug = self.select_outliers(concat_feat_aug, K=concat_feat_gt.shape[0], method=method, text_embedding=self.text_embedding[i],)
+                        concat_feat_aug = concat_feat_aug[topk_idx_aug]
+                        if len(concat_feat_aug) == 0:
+                            concat_feat_new = concat_feat_gt
+                        else:
+                            concat_feat_new = torch.cat([concat_feat_gt,concat_feat_aug],dim=0)
+                        topk_idx_hum = self.select_outliers(concat_feat_new, K=new_K_shot, method=method, text_embedding=self.text_embedding[i],)
+                        sample_hum_embeddings = final_hum[topk_idx_hum]
+                        sample_obj_embeddings = final_obj[topk_idx_hum]
+                    except:
+                        pdb.set_trace()
             elif strategy == 'kmeans':
                 cancat_feat = torch.cat([final_hum,final_obj],dim=-1)
-                if new_K_shot == K_shot
+                if new_K_shot == K_shot and len(save_embs)>K_shot:
                     new_embeddings = self.naive_kmeans(np.array(cancat_feat.cpu()), K=K_shot)
                     sample_hum_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
                     sample_obj_embeddings = torch.as_tensor(new_embeddings[:, 512:]).float()
                 else:
                     sample_hum_embeddings = cancat_feat[:,:512]
                     sample_obj_embeddings = cancat_feat[:,512:]
+            elif strategy == 'fewshot':
+                few_shot_samples = 4
+                # pdb.set_trace()
+                if gt_sample_lens < few_shot_samples:
+                    sample_hum_embeddings = final_hum[:gt_sample_lens]
+                    sample_obj_embeddings = final_obj[:gt_sample_lens]
+
+                else:
+                    feat = save_embs[:gt_sample_lens]
+                    range_lens = np.arange(len(feat))
+                    sample_index = np.random.choice(range_lens,few_shot_samples,replace=False)
+                    sample_hum_embeddings = feat[sample_index,:512]
+                    sample_obj_embeddings= feat[sample_index,512:]
             else:
-                pass
+                # pdb.set_trace()
+                range_lens = np.arange(gt_sample_lens)
+                new_K_shot = min(len(range_lens), K_shot)
+                sample_index = np.random.choice(range_lens,new_K_shot,replace=False)
+                sample_hum_embeddings = final_hum[sample_index]
+                sample_obj_embeddings = final_obj[sample_index]
             # sample_index = np.random.choice(range_lens,new_K_shot,replace=False)
             # sample_hum_embeddings = final_hum[sample_index]
             # sample_obj_embeddings = final_obj[sample_index]

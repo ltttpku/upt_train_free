@@ -108,6 +108,7 @@ def main(rank, args):
     if args.eval:
         if args.dataset == 'vcoco':
             raise NotImplementedError(f"Evaluation on V-COCO has not been implemented.")
+        
         ap = engine.test_hico(test_loader)
         # Fetch indices for rare and non-rare classes
         num_anno = torch.as_tensor(trainset.dataset.anno_interaction)
@@ -121,12 +122,13 @@ def main(rank, args):
         )
         print(args.resume)
         import datetime
-        with open(f'logs/outliers={args.use_outliers}_branch={args.branch}.log', 'a') as f:
+        with open(f'logs/logs_ye/strategy={args.strategy}_method={args.out_method}_branch={args.branch}.log', 'a') as f:
             ## write all args
             f.write(str(datetime.datetime.now()))
             f.write('\n')
             json.dump(args.__dict__, f)
             f.write('\n')
+            # f.write(f'numshot:{args.num_shot}, alpha: {args.alpha}, neighbours_descending: {args.neighbours_descending} , topk_descending:{args.topk_descending}')
             f.write(f'{100 * ap.mean():.2f} ')
             f.write(f'{100 * ap[rare].mean():.2f} ')
             f.write(f'{100 * ap[non_rare].mean():.2f}\n')
@@ -296,7 +298,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_shot', default=1, type=int)
 
     parser.add_argument('--is_unseen', default=False, action='store_true')
-
+    parser.add_argument('--strategy', default='random',type=str)
+    parser.add_argument('--out_method', default='default',type=str)
 
     args = parser.parse_args()
     print(args)
