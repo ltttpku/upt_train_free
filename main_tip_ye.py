@@ -121,13 +121,16 @@ def main(rank, args):
         )
         # print(args.resume)
         import datetime
-        with open(f'logs/LT_kmeans={args.use_kmeans}_outliers={args.use_outliers}_outmethod={args.out_method}.log', 'a') as f:
+        file1name = (args.file1.split('/')[-1]).split('.')[0]
+        _nn = file1name.split('_')[2]
+        with open(f'logs/LT_file1=fewshot{_nn}_recombine_method={args.recombine_method}_kmeans={args.use_kmeans}_outliers={args.use_outliers}_outmethod={args.out_method}.log', 'a') as f:
             ## write all args
             f.write(str(datetime.datetime.now()))
             f.write('\n')
+            f.write(file1name + '\n')
             json.dump(args.__dict__, f)
             f.write('\n')
-            f.write(f'numshot:{args.num_shot}, alpha: {args.alpha}, neighbours_descending: {args.neighbours_descending} , topk_descending:{args.topk_descending}')
+            f.write(f'numshot:{args.num_shot}, alpha: {args.alpha}, neighbours_descending: {args.neighbours_descending} , topk_descending:{args.topk_descending}\n')
             f.write(f'{100 * ap.mean():.2f} ')
             f.write(f'{100 * ap[rare].mean():.2f} ')
             f.write(f'{100 * ap[non_rare].mean():.2f}\n')
@@ -303,6 +306,9 @@ if __name__ == '__main__':
     parser.add_argument('--out_method', default='default',type=str)
     parser.add_argument('--preconcat', default=False, action='store_true')
     parser.add_argument('--strategy', default='random',type=str)
+    parser.add_argument('--recombine_method', default='none',type=str)
+    parser.add_argument('--file1', default='few_shot_pickle/yzj/few_shot_4_2189_1441_vit16emb.p',type=str)
+    
 
     args = parser.parse_args()
     print(args)

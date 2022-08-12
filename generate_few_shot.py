@@ -8,7 +8,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--sample_lens', default=2, type=int)
 parser.add_argument('--seed', default=123, type=int)
-parser.add_argument('--save_dir', default='few_shot_pickle/yzj/', type=str)
+parser.add_argument('--save_dir', default='few_shot_pickle/final_sets/', type=str)
 
 
 

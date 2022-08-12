@@ -237,7 +237,7 @@ class UPT(nn.Module):
         self.feature = 'hum_obj' # union, obj_uni, hum_uni, hum_obj_uni, cahce model 
         ## arguments
         self._load_features = True
-        self.recombine_method = 'none' ## 'inter' 'intra'
+        self.recombine_method = kwargs['recombine_method'] ## 'inter' 'intra'
         self.branch = kwargs['branch'] ## F_cluster, F_cluster_semantic_label, F_vis, F_vis_semantic_label
                                   ## F_cluster_F_vis_semantic_label， text_only, vis+text+cluster
         self.temperature = 1
@@ -251,14 +251,13 @@ class UPT(nn.Module):
         self.use_less_confident = kwargs['use_less_confident'] ## priority: use_less_confident > use_outliers > kmeans > iou_rank
 
         self.preconcat = kwargs['preconcat']
-        self._global_norm = False
         self.neighbours_descending = kwargs['neighbours_descending']
         self.topk_descending = kwargs['topk_descending']
 
         # file1 = 'union_embeddings_cachemodel_clipcrops.p'
         # file1 = 'union_embeddings_cachemodel_crop_padding_zeros.p'
         # file1 = 'union_embeddings_cachemodel_crop_padding_zeros_vitb16.p'
-        file1 = 'few_shot_pickle/yzj/few_shot_4_2189_1441_vit16emb.p'
+        file1 = kwargs['file1']
         print('[INFO]: in _ye.py')
         print('>>> branch:', self.branch)
         print('>>> feature_type:', self.feature, 'topk:', self.topk, \
@@ -269,7 +268,7 @@ class UPT(nn.Module):
         print(f'[INFO]: neighbours_descending: {self.neighbours_descending} , topk_descending:{self.topk_descending}')
         # save_file2 = 'save_sample_indexes_{}_{}.p'.format(self.class_nums,num_shot)
         save_file2 = None
-        self.hois_cooc = torch.load('one_hots.pt')
+        # self.hois_cooc = torch.load('one_hots.pt')
 
         self.cache_models, self.one_hots, self.sample_lens = self.load_cache_model(file1=file1,file2=save_file2, feature=self.feature,class_nums=self.class_nums, num_shot=num_shot,iou_rank=iou_rank,use_mean_feat=use_mean_feat)
         # pdb.set_trace()
@@ -420,6 +419,18 @@ class UPT(nn.Module):
             return feats
         else:
             raise NotImplementedError
+    
+    def inter_swapping(self, obj, hum):
+        pdb.set_trace()
+        
+        num_hum = hum.shape[0]
+        num_obj = obj.shape[0]
+        
+        hum = hum.repeat(1, num_obj).reshape(-1, 512)
+        obj = obj.repeat(num_hum, 1)
+
+        feat = torch.cat((hum, obj), dim=-1)
+        return feat
 
     def select_outliers(self, feats, K, outlier=True, method='default', text_embedding=None, origin_idx=None, ratio=0.5, neighbours_descending=False, topk_descending=True):
         '''
@@ -698,9 +709,9 @@ class UPT(nn.Module):
             for i, hum_emb, obj_emb, embeddings in tqdm(zip(indexes, hum_embeddings, obj_embeddings, union_embeddings)):
                 range_lens = np.arange(len(embeddings))
 
-                obj_embeddings = torch.as_tensor(np.array(obj_emb)).float()
-                hum_embeddings =  torch.as_tensor(np.array(hum_emb)).float()   
-                new_embeddings = torch.cat([ obj_embeddings, hum_embeddings], dim=-1)
+                hum_emb =  torch.as_tensor(np.array(hum_emb)).float()   
+                obj_emb = torch.as_tensor(np.array(obj_emb)).float()
+                new_embeddings = torch.cat([hum_emb, obj_emb], dim=-1)
                 new_embeddings = new_embeddings.cuda().float()
 
                 origin_idx = None
@@ -708,49 +719,48 @@ class UPT(nn.Module):
                     # origin_embeddings = new_embeddings.clone().detach() ## 60 x 1024
                     # if new_embeddings.shape[0] < 100:    
                     new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
-                        # origin_idx = torch.arange(0, new_embeddings.shape[0], obj_embeddings.shape[0]).cuda()
+                    origin_idx = torch.arange(0, new_embeddings.shape[0], obj_emb.shape[0]).cuda()
                 elif self.recombine_method == 'inter':
-                    raise NotImplementedError
-                    ## inter-class
-                    # inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
-                    # hum_embeddings = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
-                    # hum_embeddings = torch.cat((hum_embeddings), dim=0)
-                    # inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
-                    # obj_embeddings = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
-                    # obj_embeddings = torch.cat((obj_embeddings), dim=0)
+                    inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
+                    hum_emb = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
+                    hum_emb = torch.cat((hum_emb), dim=0)
+                    inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
+                    obj_emb = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
+                    obj_emb = torch.cat((obj_emb), dim=0)
 
+                    new_embeddings = self.inter_swapping(obj=obj_emb, hum=hum_emb).cuda().float()
+
+                # pdb.set_trace()
                 if len(range_lens) > K_shot:
-                    lens = K_shot                    
-                    if self.preconcat:
-                        # pdb.set_trace() ## key
-                        if self.use_kmeans:
-                            new_embeddings = self.naive_kmeans(np.array(new_embeddings.cpu()), K=K_shot)
-                            sample_obj_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
-                            sample_hum_embeddings = torch.as_tensor(new_embeddings[:, 512:]).float()
-                        else:
-                            if self.use_outliers:
-                                topk_idx = self.select_outliers(new_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i], ratio=self.alpha,
-                                                        neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending, origin_idx=origin_idx if origin_idx != None else None)
-                            else:
-                                topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
-                            sample_obj_embeddings = new_embeddings[topk_idx, :512]
-                            sample_hum_embeddings = new_embeddings[topk_idx, 512:]
-                            # pdb.set_trace()
-                            if obj_embeddings.shape[0] < 100:    
-                                if_origin = [topk_idx[i] in origin_idx for i in range(K_shot)]
-                                all_if_origin.extend(if_origin)
-                        # tmpdct = {'new_embeddings': new_embeddings.cpu(), 'topk_idx': topk_idx.cpu()}
-                    else:
-                        # pdb.set_trace()
-                        if self.use_outliers:
-                            sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
-                            sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
-                        else:
-                            raise NotImplementedError
+                    lens = K_shot  
                 else:
-                    lens = len(embeddings)    
-                    sample_obj_embeddings = obj_embeddings
-                    sample_hum_embeddings = hum_embeddings
+                    lens = len(embeddings)  
+                # if lens == 1:
+                #     pdb.set_trace()                
+                if self.preconcat:
+                    # pdb.set_trace() ## key
+                    if self.use_kmeans:
+                        new_embeddings = self.naive_kmeans(np.array(new_embeddings.cpu()), K=lens)
+                        sample_hum_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
+                        sample_obj_embeddings = torch.as_tensor(new_embeddings[:, 512:]).float()
+                    else:
+                        if self.use_outliers:
+                            topk_idx = self.select_outliers(new_embeddings, K=lens, method=self.out_method, text_embedding=self.text_embedding[i], ratio=self.alpha,
+                                                    neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending, origin_idx=origin_idx if origin_idx != None else None)
+                        else:
+                            topk_idx = torch.randperm(new_embeddings.shape[0])[:lens] 
+                        sample_hum_embeddings = new_embeddings[topk_idx, :512]
+                        sample_obj_embeddings = new_embeddings[topk_idx, 512:]
+                else:
+                    if self.use_outliers:
+                        sample_hum_embeddings = hum_emb[self.select_outliers(hum_emb, K=lens, method=self.out_method, text_embedding=self.text_embedding[i])]
+                        sample_obj_embeddings = obj_emb[self.select_outliers(obj_emb, K=lens, method=self.out_method, text_embedding=self.text_embedding[i])]
+                    else:
+                        raise NotImplementedError
+                # else:
+                #     lens = len(embeddings)    
+                #     sample_obj_embeddings = obj_emb
+                #     sample_hum_embeddings = hum_emb
 
                 lens = len(sample_obj_embeddings)
                 if i==0:
@@ -1578,6 +1588,8 @@ def build_detector(args, class_corr):
         topk_descending = args.topk_descending,
         use_kmeans = args.use_kmeans,
         out_method = args.out_method,
-        preconcat = args.preconcat
+        preconcat = args.preconcat,
+        recombine_method = args.recombine_method,
+        file1 = args.file1
     )
     return detector
