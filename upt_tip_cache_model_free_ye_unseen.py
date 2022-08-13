@@ -664,6 +664,393 @@ class UPT(nn.Module):
                 one_hots[cumsum_sample_lens[i-1]:cumsum_sample_lens[i], i] = 1 
         return cache_model, one_hots, cluster_num_lst
         
+    def load_cache_model_support_inter(self,file1, file2=None, category='verb', feature='union',class_nums=117, num_shot=10, iou_rank=False, use_mean_feat=False):  ## √
+        '''
+        To Do
+        '''
+        # gt boxes 
+        file_bbox = 'save_bboxes_ye.p'
+        bboxes_gt = pickle.load(open(file_bbox,'rb'))
+        # pdb.set_trace()
+        annotation = pickle.load(open(file1,'rb'))
+        # if category == 'verb':
+        categories = class_nums
+        union_embeddings = [[] for i in range(categories)]
+        obj_embeddings = [[] for i in range(categories)]
+        hum_embeddings = [[] for i in range(categories)]
+        filenames = list(annotation.keys())
+        verbs_iou = [[] for i in range(class_nums)] # contain 600hois or 117 verbs
+        # hois_iou = [[] for i in range(len(hois))]
+        # filenames = [[] for i in range(class_nums)] # contain 600hois or 117 verbs
+        each_filenames = [[] for i in range(categories)]
+        sample_indexes = [[] for i in range(categories)]
+
+        # play for inter swap
+        gt_pair_hum_obj_area = [[] for i in range(categories)]
+        verbs_human_feat = [[] for i in range(117)]
+        verbs_human_area = [[] for i in range(117)]
+
+        gt_pair_hum_obj_area = [[] for i in range(categories)]
+        gt_pair_hum_obj_area_ratio = [[] for i in range(categories)]
+
+        obj_belong_to_object_pool = [[] for i in range(categories)]
+        object_feat = [[] for i in range(80)]
+        object_ref_area = [[] for i in range(80)]
+        human_ref_area =  [[] for i in range(categories)]
+
+
+        object_ref_area_ratio = [[] for i in range(80)]
+
+
+
+        others_hum = [[] for i in range(categories)]
+        for file_n in filenames:
+            anno = annotation[file_n]
+            if categories == 117: verbs = anno['verbs']
+            else: verbs = anno['hois']
+            
+            union_features = anno['union_features']
+            object_features = anno['object_features']
+            # pdb.set_trace()
+            huamn_features = anno['huamn_features']
+            ious = torch.diag(box_iou(torch.as_tensor(anno['boxes_h']), torch.as_tensor(anno['boxes_o'])))
+            
+            x, y = torch.nonzero(torch.min(
+            box_iou(gt_hum_boxes, gt_hum_boxes),
+            box_iou(gt_obj_boxes, gt_obj_boxes),
+            ) >= 0.5).unbind(1)
+            orig_verbs = anno['verbs']
+            objects_label = torch.as_tensor(anno['objects'])
+
+            area1 = (gt_hum_boxes[:,2]-gt_hum_boxes[:,0]) * (gt_hum_boxes[:,3]-gt_hum_boxes[:,1])
+            area2 = (gt_obj_boxes[:,2]-gt_obj_boxes[:,0]) * (gt_obj_boxes[:,3]-gt_obj_boxes[:,1])
+            area_ratio =   area2/ area1      
+
+            if len(verbs) == 0:
+                print(file_n)
+            for i, v in enumerate(verbs):
+                # pdb.set_trace()
+                union_embeddings[v].append(union_features[i] / np.linalg.norm(union_features[i]))
+                obj_embeddings[v].append(object_features[i] / np.linalg.norm(object_features[i]))
+                hum_embeddings[v].append(huamn_features[i] / np.linalg.norm(huamn_features[i]))
+                each_filenames[v].append(file_n)
+                sample_indexes[v].append(i)
+
+                gt_pair_hum_obj_area[v].append((area1[i],area2[i],area1[i]/area2[i]))
+                # add iou
+                verbs_iou[v].append(ious[i])
+
+                # add hum obj area
+                ind_x = torch.where(x==i)[0]
+                ind_y = torch.where(y[ind_x]!=i)[0]
+                object_pair = torch.where(objects_label[i]==objects_label[ind_y])[0]
+                ind_y_new = ind_y[object_pair]
+                if len(ind_y_new) == 1:
+                    # ind_y_new = ind_y_new[None,]
+                    others_hum[v].append(torch.as_tensor(huamn_features[ind_y_new][None,]))
+                    # pdb.set_trace()
+                else:
+                    others_hum[v].append(torch.as_tensor(huamn_features[ind_y_new]))
+                    
+                object_ref_area[objects_label[i]].append(area2[i])
+                human_ref_area[v].append(area1[ind_y_new])
+                
+                verbs_iou[v].append(ious[i])
+        #         if v in self.unseen_nonrare_first and self.unseen_setting:
+        #             # pdb.set_trace()
+        #             continue
+                verbs_human_feat[orig_verbs[i]].append(torch.as_tensor(huamn_features[i] / np.linalg.norm(huamn_features[i])))
+                verbs_human_area[orig_verbs[i]].append(area1[i])
+                obj_belong_to_object_pool[v].append(len(object_feat[objects_label[i]]))
+                object_feat[objects_label[i]].append(object_features[i] / np.linalg.norm(object_features[i]))
+                
+                
+        
+
+        all_lens = torch.as_tensor([len(u) for u in union_embeddings])
+        K_shot = num_shot
+        if use_mean_feat:
+            all_lens_sample = torch.ones(categories)
+            all_lens_sample = torch.cumsum(all_lens_sample,dim=-1).long()
+        else:
+            K_sample_lens = all_lens>K_shot
+            all_lens_sample = torch.ones(categories) * K_shot
+            index_lessK = torch.where(K_sample_lens==False)[0]
+            # pdb.set_trace()
+            for index in index_lessK:
+                all_lens_sample[index] = len(union_embeddings[index])
+            all_lens_sample = torch.cumsum(all_lens_sample,dim=-1).long()
+        if file2 is not None:
+            save_sample_index = pickle.load(open(file2, 'rb'))['sample_index']
+        else:
+            save_sample_index = []
+        save_filenames = []
+        save_sample_indexes = []
+        # pdb.set_trace()
+        all_if_origin = []
+
+        if feature == 'union' :
+            cache_models = torch.zeros((all_lens_sample[-1], 512),dtype=torch.float16)
+            one_hots = torch.zeros((all_lens_sample[-1], categories),dtype=torch.float16)
+            each_lens = []
+            indexes = np.arange(len(union_embeddings))
+            for i, hum_emb, obj_emb, embeddings in zip(indexes, hum_embeddings, obj_embeddings, union_embeddings):
+                range_lens = np.arange(len(embeddings))
+                if len(range_lens) > K_shot:
+                    lens = K_shot
+                    if file2 is not None:
+                        sample_index = save_sample_index[i]
+                    elif iou_rank==True:
+                        ious = torch.as_tensor(verbs_iou[i])
+                        _, iou_inds = ious.sort()
+                        sample_ind = np.arange(0, len(ious), len(ious)/lens, dtype=np.int)[:lens]
+                        sample_index = iou_inds[sample_ind]
+                    else:
+                        sample_index = np.random.choice(range_lens,K_shot,replace=False)
+                    sample_embeddings = np.array(embeddings)[sample_index]
+                    sample_obj_embeddings =  np.array(obj_emb)[sample_index]
+                    sample_hum_embeddings =  np.array(hum_emb)[sample_index]
+                    ## kmeans 
+                    ## embeddings, obj_emb, hum_emb: lst of tensors, same shape
+                    ## sample_embeddings: K_shot x 512
+                    # pdb.set_trace()
+                else:
+                    lens = len(embeddings)
+                    sample_index = np.arange(lens)
+                    sample_embeddings = np.array(embeddings)
+                    sample_obj_embeddings = np.array(obj_emb)
+                    sample_hum_embeddings = np.array(hum_emb)
+                
+                if i==0:
+                    cache_models[:all_lens_sample[i],:] = torch.as_tensor(sample_embeddings)
+                    
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[:all_lens_sample[i],:] = one_hot
+                else:
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],:] = torch.as_tensor(sample_embeddings)
+
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[all_lens_sample[i-1]:all_lens_sample[i],:] = one_hot
+
+                each_lens.append(lens)
+
+        elif feature == 'hum_obj':
+            cache_models = torch.zeros((all_lens_sample[-1], 512*2),dtype=torch.float16)
+            one_hots = torch.zeros((all_lens_sample[-1], categories),dtype=torch.float16)
+            each_lens = []
+            indexes = np.arange(len(union_embeddings))
+            for i, hum_emb, obj_emb, embeddings in tqdm(zip(indexes, hum_embeddings, obj_embeddings, union_embeddings)):
+                range_lens = np.arange(len(embeddings))
+
+                hum_emb =  torch.as_tensor(np.array(hum_emb)).float()   
+                obj_emb = torch.as_tensor(np.array(obj_emb)).float()
+                new_embeddings = torch.cat([hum_emb, obj_emb], dim=-1)
+                new_embeddings = new_embeddings.cuda().float()
+
+                origin_idx = None
+                if self.recombine_method == 'intra':
+                    # origin_embeddings = new_embeddings.clone().detach() ## 60 x 1024
+                    # if new_embeddings.shape[0] < 100:    
+                    new_embeddings = self.intra_swapping(new_embeddings) ## 3600 x 1024
+                    origin_idx = torch.arange(0, new_embeddings.shape[0], obj_emb.shape[0]).cuda()
+                elif self.recombine_method == 'inter':
+                    inter_hum_indices = (torch.as_tensor(self.HOI_IDX_TO_ACT_IDX) == self.HOI_IDX_TO_ACT_IDX[i]).nonzero()
+                    hum_emb = [torch.as_tensor(hum_embeddings[i]) for i in inter_hum_indices]
+                    hum_emb = torch.cat((hum_emb), dim=0)
+                    inter_obj_indices = (torch.as_tensor(self.HOI_IDX_TO_OBJ_IDX) == self.HOI_IDX_TO_OBJ_IDX[i]).nonzero()
+                    obj_emb = [torch.as_tensor(obj_embeddings[i]) for i in inter_obj_indices]
+                    obj_emb = torch.cat((obj_emb), dim=0)
+
+                    new_embeddings = self.inter_swapping(obj=obj_emb, hum=hum_emb).cuda().float()
+                elif self.recombine_method == 'inter_partial':
+                    hum_area = torch.stack([gt_pair[0] for gt_pair in gt_pair_hum_obj_area[i]])
+                    obj_area = torch.stack([gt_pair[1] for gt_pair in gt_pair_hum_obj_area[i]])
+                    hum_obj_ratio = torch.stack([gt_pair[2] for gt_pair in gt_pair_hum_obj_area[i]])
+                    lens = len(hum_emb)
+                    ref_area = torch.stack(verbs_human_area[self.HOI_IDX_TO_ACT_IDX[i]])
+                    ref_hum = torch.stack(verbs_human_feat[self.HOI_IDX_TO_ACT_IDX[i]])
+                    ref_hum = ref_hum/ ref_hum.norm(dim=-1, keepdim=True)
+                    new_hum = torch.cat([hum_emb,ref_hum])
+                    sim_ = new_hum @ new_hum.t()
+                #     pdb.set_trace()
+                    new_hum_area = torch.cat([hum_area, ref_area],dim=0)
+                    
+                    # object 
+                    
+                    object_cls = HOI_IDX_TO_OBJ_IDX[i]
+                    object_ref_embs = torch.stack([torch.as_tensor(obj) for obj in object_feat[object_cls]])
+                    sim_obj = obj_emb @ object_ref_embs.t()
+                    
+                    ref_obj_area = torch.stack(object_ref_area[object_cls])
+                    object_indexes_pool = obj_belong_to_object_pool[i]
+                    for k, sim in enumerate(sim_[:lens]):
+                        sort_indexes = sim.sort(descending=True)[1]
+                        valid_indexes = sort_indexes[torch.where(sort_indexes != k)[0]]
+
+                        sample_lens = min(len(valid_indexes),topk)
+
+                        sim_hum_feats = new_hum[valid_indexes][:sample_lens]
+                        sim_hum_area = new_hum_area[valid_indexes][:sample_lens]
+
+                        # rule2: object 
+                        sort_obj_indexes = sim_obj[k].sort(descending=True)[1]
+                        current_obj = object_indexes_pool[k]
+                        valid_obj_indexes = sort_obj_indexes[torch.where(sort_obj_indexes != current_obj)[0]]
+
+                        sample_obj_lens = min(len(valid_obj_indexes),topk)
+
+                        sim_obj_feats = object_ref_embs[valid_obj_indexes][:sample_obj_lens]
+                        sim_obj_area = ref_obj_area[valid_obj_indexes][:sample_obj_lens]
+
+                        # rule3 topk 
+                        hum_obj_ratio_one = hum_obj_ratio[k]
+                        hum_area_one = hum_area[k]
+                        obj_area_one = obj_area[k]
+                        # if i == 8: pdb.set_trace()
+                        for h_i, h_feat in enumerate(sim_hum_feats):
+                            h_area = sim_hum_area[h_i]
+                            for o_i, o_feat in enumerate(sim_obj_feats):
+                                o_area = sim_obj_area[o_i]
+                                # ratio = h_area/o_area /hum_obj_ratio_one
+                                if torch.abs(h_area/hum_area_one -1)<0.1 and torch.abs(o_area/obj_area_one -1)<0.1:
+                                    save_one_hum.append(h_feat)
+                                    save_one_obj.append(o_feat)
+                                    new_count += 1
+                    if len(save_one_hum) != 0:
+                        hum_emb = torch.cat([hum_emb,torch.stack(save_one_hum)])
+                        obj_emb = torch.cat([obj_emb,torch.stack(save_one_obj)])
+                    else:
+                        hum_emb = hum_emb
+                        obj_emb = obj_emb
+                    new_embeddings = torch.cat([hum_emb,obj_emb],dim=-1)
+                # pdb.set_trace()
+                if len(range_lens) > K_shot:
+                    lens = K_shot  
+                else:
+                    lens = len(embeddings)  
+                # if lens == 1:
+                #     pdb.set_trace()                
+                if self.preconcat:
+                    # pdb.set_trace() ## key
+                    if self.use_kmeans:
+                        new_embeddings = self.naive_kmeans(np.array(new_embeddings.cpu()), K=lens)
+                        sample_hum_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
+                        sample_obj_embeddings = torch.as_tensor(new_embeddings[:, 512:]).float()
+                    else:
+                        if self.use_outliers:
+                            topk_idx = self.select_outliers(new_embeddings, K=lens, method=self.out_method, text_embedding=self.text_embedding[i], ratio=self.alpha,
+                                                    neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending, origin_idx=origin_idx if origin_idx != None else None)
+                        else:
+                            topk_idx = torch.randperm(new_embeddings.shape[0])[:lens] 
+                        sample_hum_embeddings = new_embeddings[topk_idx, :512]
+                        sample_obj_embeddings = new_embeddings[topk_idx, 512:]
+                else:
+                    if self.use_outliers:
+                        sample_hum_embeddings = hum_emb[self.select_outliers(hum_emb, K=lens, method=self.out_method, text_embedding=self.text_embedding[i])]
+                        sample_obj_embeddings = obj_emb[self.select_outliers(obj_emb, K=lens, method=self.out_method, text_embedding=self.text_embedding[i])]
+                    else:
+                        raise NotImplementedError
+                # else:
+                #     lens = len(embeddings)    
+                #     sample_obj_embeddings = obj_emb
+                #     sample_hum_embeddings = hum_emb
+
+                lens = len(sample_obj_embeddings)
+                if i==0:
+                    cache_models[:all_lens_sample[i],:512] = sample_hum_embeddings
+                    cache_models[:all_lens_sample[i],512:1024] = sample_obj_embeddings
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[:all_lens_sample[i],:] = one_hot
+                else:
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],:512] = sample_hum_embeddings
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],512:1024] = sample_obj_embeddings
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[all_lens_sample[i-1]:all_lens_sample[i],:] = one_hot
+
+                each_lens.append(lens)
+
+        elif feature == 'hum_obj_uni':
+            cache_models = torch.zeros((all_lens_sample[-1], 512*3),dtype=torch.float16)
+            one_hots = torch.zeros((all_lens_sample[-1], categories),dtype=torch.float16)
+            each_lens = []
+            indexes = np.arange(len(union_embeddings))
+            for i, hum_emb, obj_emb, embeddings in zip(indexes, hum_embeddings, obj_embeddings, union_embeddings):
+                range_lens = np.arange(len(embeddings))
+                range_lens = np.arange(len(embeddings))
+
+                union_embeddings = torch.as_tensor(embeddings).float()
+                obj_embeddings = torch.as_tensor(np.array(obj_emb)).float()
+                hum_embeddings =  torch.as_tensor(np.array(hum_emb)).float()   
+                
+                if len(range_lens) > K_shot:
+                    lens = K_shot
+                    new_embeddings = torch.cat([ obj_embeddings, hum_embeddings, union_embeddings], dim=-1)
+                    new_embeddings = new_embeddings.cuda().float()        
+                    origin_idx = None
+
+                    if self.preconcat:
+                        # pdb.set_trace() ## key
+                        if self.use_kmeans:
+                            new_embeddings = self.naive_kmeans(np.array(new_embeddings.cpu()), K=K_shot)
+                            sample_obj_embeddings = torch.as_tensor(new_embeddings[:, :512]).float()
+                            sample_hum_embeddings = torch.as_tensor(new_embeddings[:, 512:1024]).float()
+                            sample_embeddings = torch.as_tensor(new_embeddings[:, 1024:]).float()
+                        else:
+                            if self.use_outliers:
+                                topk_idx = self.select_outliers(new_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i], ratio=self.alpha,
+                                                        neighbours_descending=self.neighbours_descending, topk_descending=self.topk_descending, origin_idx=origin_idx if origin_idx != None else None)
+                            else:
+                                topk_idx = torch.randperm(new_embeddings.shape[0])[:K_shot] 
+                            sample_obj_embeddings = new_embeddings[topk_idx, :512]
+                            sample_hum_embeddings = new_embeddings[topk_idx, 512:1024]
+                            sample_embeddings = new_embeddings[topk_idx, 1024:]
+                            # pdb.set_trace()
+                            if obj_embeddings.shape[0] < 100:    
+                                if_origin = [topk_idx[i] in origin_idx for i in range(K_shot)]
+                                all_if_origin.extend(if_origin)
+                        # tmpdct = {'new_embeddings': new_embeddings.cpu(), 'topk_idx': topk_idx.cpu()}
+                    else:
+                        # pdb.set_trace()
+                        if self.use_outliers:
+                            sample_obj_embeddings = obj_embeddings[self.select_outliers(obj_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
+                            sample_hum_embeddings = hum_embeddings[self.select_outliers(hum_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
+                            sample_embeddings = union_embeddings[self.select_outliers(union_embeddings, K=K_shot, method=self.out_method, text_embedding=self.text_embedding[i])]
+                        else:
+                            raise NotImplementedError
+                else:
+                    lens = len(embeddings)
+                    sample_obj_embeddings = obj_embeddings
+                    sample_hum_embeddings = hum_embeddings
+                    sample_embeddings = union_embeddings
+
+                lens = len(sample_embeddings)
+                if i==0:
+                    cache_models[:all_lens_sample[i],:512] = sample_hum_embeddings
+                    cache_models[:all_lens_sample[i],512:1024] = sample_obj_embeddings
+                    cache_models[:all_lens_sample[i],1024:] = sample_embeddings
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[:all_lens_sample[i],:] = one_hot
+
+                else:
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],:512] = sample_hum_embeddings
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],512:1024] = sample_obj_embeddings
+                    cache_models[all_lens_sample[i-1]:all_lens_sample[i],1024:] = sample_embeddings
+                    one_hot = torch.zeros((lens,categories),dtype=torch.long)
+                    one_hot[:,i] = 1
+                    one_hots[all_lens_sample[i-1]:all_lens_sample[i],:] = one_hot
+
+                each_lens.append(lens)
+        if len(all_if_origin) > 0:
+            print('>>> real / (real+augmented) =', sum(all_if_origin) / len(all_if_origin))
+        return cache_models,one_hots, each_lens
+        
+
+    
     def load_cache_model_ye(self,num_shot, strategy='random', method='default'):
         anno_file = pickle.load(open('same_HOI_extention_all_objects_3rule_new_two_100samples.p','rb'))
         lens = len(anno_file)

@@ -3,6 +3,7 @@ import random
 import pickle
 import torch
 import argparse
+import pdb
 
 parser = argparse.ArgumentParser()
 
@@ -29,7 +30,7 @@ random.shuffle(idx)
 # for anno in f['annotation']:
 #     for hoi in anno['hoi']:
 #         num_anno[hoi] += 1
-
+# pdb.set_trace()
 _idx = idx
 # _num_anno = num_anno
 

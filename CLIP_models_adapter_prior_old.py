@@ -152,7 +152,7 @@ class Adapter(nn.Module):
         #                                         self.dropout, 'gelu', False)
     def forward(self, x, add_residual=True, residual=None, prior=None):
         residual = x if residual is None else residual
-        if self.adapter_layernorm_option == 'in':  # none
+        if self.adapter_layernorm_option == 'in':
             x = self.adapter_layer_norm_before(x)
 
         down = self.down_proj(x)
@@ -428,34 +428,19 @@ class ResidualAttentionBlock(nn.Module):
 
     def forward(self, x: torch.Tensor):
         
-        # x, prior = x 
-        # x = x + self.attention(self.ln_1(x))
-        # residual = x
-
-        
-        # if self.adapter:
-        #     adapt_x = self.adaptermlp(x, add_residual=False,prior=prior)
-        # x = self.mlp(self.ln_2(x))
-        # if self.adapter:
-        #     x = x + adapt_x
-        # x = residual + x
-        # # x = x + self.mlp(self.ln_2(x))
-        # return (x,prior)
-        # match to graph -> true
         x, prior = x 
         x = x + self.attention(self.ln_1(x))
         residual = x
-
-        x = self.ln_2(x)
         if self.adapter:
+            
+
             adapt_x = self.adaptermlp(x, add_residual=False,prior=prior)
-        x = self.mlp(x)
+        x = self.mlp(self.ln_2(x))
         if self.adapter:
             x = x + adapt_x
         x = residual + x
         # x = x + self.mlp(self.ln_2(x))
         return (x,prior)
-
 
 
 class Transformer(nn.Module):
@@ -485,7 +470,7 @@ class VisionTransformer(nn.Module):
 
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
-        self.patch_size = patch_size
+
     def forward(self, x: torch.Tensor, prior=None):
         bs, c, h, w = x.shape
         x = self.conv1(x)  # shape = [*, width, grid, grid]
@@ -504,7 +489,7 @@ class VisionTransformer(nn.Module):
         if self.proj is not None:
             x = x @ self.proj
         # pdb.set_trace()
-        return x[:,0,:], x[:,1:,:].view(bs,h//self.patch_size, w//self.patch_size, -1).permute(0, 3, 1, 2)
+        return x[:,0,:], x[:,1:,:].view(bs,h//32, w//32, -1).permute(0, 3, 1, 2)
 
     def init_weights(self, pretrained=None):
         # pdb.set_trace()
@@ -525,10 +510,10 @@ class VisionTransformer(nn.Module):
                             # pdb.set_trace()
                             print(f'Resize the pos_embed shape from {state_dict[new_k].shape} to {self.positional_embedding.shape}')
                             cls_pos = state_dict[new_k][0:1, :]
-                            H = W = self.input_resolution // 16
-                            spatial_pos = F.interpolate(state_dict[new_k][1:,].reshape(1, 14, 14, cls_pos.shape[1]).permute(0, 3, 1, 2), size=(H, W), mode='bilinear')
-                            # H = W = self.input_resolution // 32
-                            # spatial_pos = F.interpolate(state_dict[new_k][1:,].reshape(1, 7, 7, cls_pos.shape[1]).permute(0, 3, 1, 2), size=(H, W), mode='bilinear')
+                            # H = W = self.input_resolution // 16
+                            # spatial_pos = F.interpolate(state_dict[new_k][1:,].reshape(1, 14, 14, cls_pos.shape[1]).permute(0, 3, 1, 2), size=(H, W), mode='bilinear')
+                            H = W = self.input_resolution // 32
+                            spatial_pos = F.interpolate(state_dict[new_k][1:,].reshape(1, 7, 7, cls_pos.shape[1]).permute(0, 3, 1, 2), size=(H, W), mode='bilinear')
                             spatial_pos = spatial_pos.reshape(cls_pos.shape[1], H*W).permute(1, 0)
                             positional_embedding = torch.cat([cls_pos, spatial_pos], dim=0)
                             state_dict[new_k] = positional_embedding

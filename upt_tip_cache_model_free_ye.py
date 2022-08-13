@@ -421,8 +421,7 @@ class UPT(nn.Module):
             raise NotImplementedError
     
     def inter_swapping(self, obj, hum):
-        pdb.set_trace()
-        
+        # pdb.set_trace()
         num_hum = hum.shape[0]
         num_obj = obj.shape[0]
         
